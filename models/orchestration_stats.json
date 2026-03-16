@@ -1,0 +1,32 @@
+{
+  "total_processed": 500,
+  "total_attacks": 157,
+  "total_actions": 10,
+  "avg_processing_time_ms": 0.01,
+  "p99_processing_time_ms": 0.03,
+  "uptime_seconds": 0.0,
+  "flows_per_second": 500.0,
+  "vnf_stats": {
+    "active_instances": 10,
+    "total_created": 10,
+    "total_destroyed": 0,
+    "scale_out_events": 4,
+    "scale_in_events": 0,
+    "instances_by_type": {
+      "dns_scrubber": 3,
+      "rate_limiter": 4,
+      "ntp_scrubber": 3
+    }
+  },
+  "policy_stats": {
+    "total_actions": 10,
+    "active_mitigations": 4,
+    "active_attack_types": [
+      "Syn",
+      "DrDoS_DNS",
+      "DrDoS_UDP",
+      "DrDoS_NTP"
+    ],
+    "action_type_counts": {}
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "proactive": {
+    "detection_accuracy": 1.0,
+    "avg_mitigation_latency": 5.181040781584064e-16,
+    "total_vnf_minutes": 24.000000000000167,
+    "true_positive_actions": 18,
+    "scenarios_mitigated": 8
+  },
+  "reactive": {
+    "detection_accuracy": 0.0,
+    "avg_mitigation_latency": 3.885780586188048e-16,
+    "total_vnf_minutes": 1.3333333333333333,
+    "true_positive_actions": 8,
+    "scenarios_mitigated": 8
+  },
+  "improvement": {
+    "latency_pct": -0.0,
+    "resource_pct": -1700.0
+  }
+}

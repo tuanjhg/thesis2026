@@ -1,0 +1,60 @@
+data_dir: ../Dataset
+output_dir: ./artifacts
+model_name: m1_tcn
+
+timestamp_column: Timestamp
+label_column: Label
+benign_keywords:
+  - benign
+  - normal
+
+poll_interval_seconds: 3
+window_size: 30
+forecast_horizon_seconds: 30
+
+# Fixed 15-feature set aligned with M2 for proactive/reactive consistency
+feature_columns:
+  - pkt_rate
+  - byte_rate
+  - syn_rate
+  - src_ip_entropy
+  - dst_ip_entropy
+  - pkt_len_mean
+  - pkt_len_std
+  - flow_rate
+  - iat_mean
+  - iat_std
+  - tcp_flag_ratio
+  - retry_rate
+  - icmp_rate
+  - udp_rate
+  - http_rate
+drop_columns:
+  - Flow ID
+  - Source IP
+  - Source Port
+  - Destination IP
+  - Destination Port
+  - Protocol
+
+train_ratio: 0.7
+val_ratio: 0.15
+random_seed: 42
+
+batch_size: 128
+learning_rate: 0.001
+weight_decay: 0.0001
+max_epochs: 60
+early_stopping_patience: 10
+
+tcn_channels: [64, 64, 32]
+tcn_kernel_size: 3
+tcn_dropout: 0.2
+
+focal_alpha: 0.25
+focal_gamma: 2.0
+
+threshold_search_fpr_max: 0.05
+
+num_workers: 0
+device: auto
