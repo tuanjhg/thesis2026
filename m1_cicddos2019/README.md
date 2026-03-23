@@ -29,6 +29,37 @@ m1_cicddos2019/
 pip install -r requirements.txt
 ```
 
+### Kaggle Setup (recommended for cloud training)
+
+If you train inside Kaggle Notebook, use the Kaggle-specific dependency file:
+
+```bash
+!pip install -q -r /kaggle/working/Main/m1_cicddos2019/requirements-kaggle.txt
+```
+
+Suggested Kaggle notebook workflow:
+
+1. Attach your dataset (or upload zipped project + dataset).
+2. Copy project to writable workspace:
+
+```bash
+!cp -r /kaggle/input/<your-project-dataset>/Main /kaggle/working/Main
+```
+
+3. Train from the M1 folder:
+
+```bash
+%cd /kaggle/working/Main/m1_cicddos2019
+!python train_m1.py --config ./config.kaggle.yaml
+!python evaluate_m1.py --config ./config.kaggle.yaml --model-dir /kaggle/working/artifacts/m1_tcn
+```
+
+4. Save artifacts as Kaggle outputs (download after run):
+  - `./artifacts/m1_tcn/model.pt`
+  - `./artifacts/m1_tcn/scaler.joblib`
+  - `./artifacts/m1_tcn/test_metrics.json`
+  - `./artifacts/m1_tcn/eval_metrics.json`
+
 ## 3) Prepare Data
 
 Place CICDDoS2019 CSV files under:

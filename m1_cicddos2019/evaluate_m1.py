@@ -10,8 +10,18 @@ from torch.utils.data import DataLoader
 
 from src.config import load_config, save_json
 from src.data_pipeline import SequenceDataset, build_sequences, chronological_split, fit_scale_transform, load_and_resample
-from src.metrics import binary_metrics
-from src.model import BinaryFocalLoss, TCNBinaryPredictor
+from src.metrics import binary_metrics, threshold_sweep_metrics
+from src.model import BinaryFocalLoss, build_model_from_checkpoint
+
+
+def parse_thresholds(raw: str) -> np.ndarray:
+    values = [float(v.strip()) for v in raw.split(",") if v.strip()]
+    if not values:
+        raise ValueError("No valid thresholds were provided")
+    for v in values:
+        if v < 0.0 or v > 1.0:
+            raise ValueError(f"Threshold out of range [0,1]: {v}")
+    return np.asarray(values, dtype=float)
 
 
 def infer_probs(model: torch.nn.Module, loader: DataLoader, device: torch.device) -> tuple[np.ndarray, np.ndarray]:
@@ -32,6 +42,12 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Evaluate M1 TCN predictor")
     parser.add_argument("--config", type=str, default="./config.yaml")
     parser.add_argument("--model-dir", type=str, default="./artifacts/m1_tcn")
+    parser.add_argument(
+        "--thresholds",
+        type=str,
+        default="0.05,0.10,0.15,0.20,0.25,0.30,0.35,0.40,0.45,0.50,0.55,0.60,0.65,0.70,0.75,0.80,0.85,0.90,0.95",
+        help="Comma-separated threshold list for confusion-matrix sweep",
+    )
     args = parser.parse_args()
 
     cfg = load_config(args.config)
@@ -73,12 +89,7 @@ def main() -> None:
     test_loader = DataLoader(test_ds, batch_size=cfg.batch_size, shuffle=False)
 
     ckpt = torch.load(ckpt_path, map_location="cpu")
-    model = TCNBinaryPredictor(
-        in_features=len(ckpt["feature_columns"]),
-        channels=ckpt["tcn_channels"],
-        kernel_size=ckpt["tcn_kernel_size"],
-        dropout=ckpt["tcn_dropout"],
-    )
+    model = build_model_from_checkpoint(ckpt)
     model.load_state_dict(ckpt["model_state"])
     threshold = float(ckpt["threshold"])
 
@@ -87,8 +98,12 @@ def main() -> None:
 
     y_true, y_prob = infer_probs(model, test_loader, device)
     metrics = binary_metrics(y_true, y_prob, threshold)
+    thresholds = parse_thresholds(args.thresholds)
+    sweep_rows = threshold_sweep_metrics(y_true, y_prob, thresholds)
 
     save_json(model_dir / "eval_metrics.json", metrics)
+    save_json(model_dir / "eval_threshold_sweep.json", {"rows": sweep_rows})
+    pd.DataFrame(sweep_rows).to_csv(model_dir / "eval_threshold_sweep.csv", index=False)
 
     pred_df = pd.DataFrame(
         {

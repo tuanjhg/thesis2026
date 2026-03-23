@@ -1,6 +1,7 @@
-data_dir: ../Dataset
+data_dir: ../Dataset/CSV-03-11/03-11
 output_dir: ./artifacts
-model_name: m1_tcn
+model_name: m1_tcn_0311
+model_type: tcn
 
 timestamp_column: Timestamp
 label_column: Label
@@ -12,7 +13,6 @@ poll_interval_seconds: 3
 window_size: 30
 forecast_horizon_seconds: 30
 
-# Fixed 15-feature set aligned with M2 for proactive/reactive consistency
 feature_columns:
   - pkt_rate
   - byte_rate
@@ -41,25 +41,29 @@ train_ratio: 0.7
 val_ratio: 0.15
 random_seed: 42
 
-batch_size: 128
+batch_size: 64
 learning_rate: 0.001
 weight_decay: 0.0001
-max_epochs: 60
-early_stopping_patience: 10
+max_epochs: 50
+early_stopping_patience: 8
 
 tcn_channels: [64, 64, 32]
 tcn_kernel_size: 3
 tcn_dropout: 0.2
 
+lstm_hidden_size: 128
+lstm_num_layers: 2
+lstm_dropout: 0.2
+lstm_bidirectional: false
+
 focal_alpha: 0.25
 focal_gamma: 2.0
-
 threshold_search_fpr_max: 0.05
 
-num_workers: 0
+num_workers: 2
 device: auto
 
 use_memmap_sequences: true
-memmap_min_samples: 200000
+memmap_min_samples: 50000
 scaler_batch_windows: 4096
-csv_chunk_size: 250000
+csv_chunk_size: 200000

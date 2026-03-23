@@ -11,6 +11,7 @@ class M1Config:
     data_dir: str = "./data/cicddos2019"
     output_dir: str = "./artifacts"
     model_name: str = "m1_tcn"
+    model_type: str = "tcn"
 
     timestamp_column: Optional[str] = None
     label_column: str = "Label"
@@ -37,6 +38,11 @@ class M1Config:
     tcn_kernel_size: int = 3
     tcn_dropout: float = 0.2
 
+    lstm_hidden_size: int = 128
+    lstm_num_layers: int = 2
+    lstm_dropout: float = 0.2
+    lstm_bidirectional: bool = False
+
     focal_alpha: float = 0.25
     focal_gamma: float = 2.0
 
@@ -45,6 +51,14 @@ class M1Config:
     num_workers: int = 0
     device: str = "cpu"
 
+    use_memmap_sequences: bool = True
+    memmap_min_samples: int = 200000
+    scaler_batch_windows: int = 4096
+    csv_chunk_size: Optional[int] = 250000
+    max_csv_files: Optional[int] = None
+    max_rows_per_file: Optional[int] = None
+    max_resampled_rows: Optional[int] = None
+
     def __post_init__(self) -> None:
         if self.benign_keywords is None:
             self.benign_keywords = ["benign", "normal"]
@@ -52,6 +66,9 @@ class M1Config:
             self.drop_columns = ["Flow ID", "Source IP", "Destination IP"]
         if self.tcn_channels is None:
             self.tcn_channels = [64, 64, 32]
+        self.model_type = str(self.model_type).lower().strip()
+        if self.model_type not in {"tcn", "lstm"}:
+            raise ValueError("model_type must be either 'tcn' or 'lstm'")
 
     @property
     def horizon_steps(self) -> int:

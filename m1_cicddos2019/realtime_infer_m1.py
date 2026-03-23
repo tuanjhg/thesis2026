@@ -10,7 +10,7 @@ import joblib
 import numpy as np
 import torch
 
-from src.model import TCNBinaryPredictor
+from src.model import build_model_from_checkpoint
 
 
 class M1RealtimePredictor:
@@ -25,12 +25,7 @@ class M1RealtimePredictor:
 
         self.scaler = joblib.load(model_dir / "scaler.joblib")
         self.device = torch.device(device)
-        self.model = TCNBinaryPredictor(
-            in_features=len(self.feature_columns),
-            channels=ckpt["tcn_channels"],
-            kernel_size=ckpt["tcn_kernel_size"],
-            dropout=ckpt["tcn_dropout"],
-        ).to(self.device)
+        self.model = build_model_from_checkpoint(ckpt).to(self.device)
         self.model.load_state_dict(ckpt["model_state"])
         self.model.eval()
 

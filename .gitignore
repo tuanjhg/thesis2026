@@ -1,3 +1,9 @@
 /Dataset
 *.pyc
 __pycache__/
+.venv/
+env/
+venv/
+*.log
+.venv-cu121/
+artifacts/

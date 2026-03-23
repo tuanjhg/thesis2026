@@ -105,6 +105,80 @@ class TCNBinaryPredictor(nn.Module):
         return probs
 
 
+class LSTMBinaryPredictor(nn.Module):
+    def __init__(
+        self,
+        in_features: int,
+        hidden_size: int = 128,
+        num_layers: int = 2,
+        dropout: float = 0.2,
+        bidirectional: bool = False,
+    ) -> None:
+        super().__init__()
+        effective_dropout = dropout if num_layers > 1 else 0.0
+        self.bidirectional = bidirectional
+        self.lstm = nn.LSTM(
+            input_size=in_features,
+            hidden_size=hidden_size,
+            num_layers=num_layers,
+            dropout=effective_dropout,
+            bidirectional=bidirectional,
+            batch_first=True,
+        )
+        out_dim = hidden_size * (2 if bidirectional else 1)
+        self.head = nn.Linear(out_dim, 1)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # Input shape: [batch, window, features]
+        z, _ = self.lstm(x)
+        z_last = z[:, -1, :]
+        logits = self.head(z_last).squeeze(-1)
+        probs = torch.sigmoid(logits)
+        return probs
+
+
+def build_binary_predictor(
+    model_type: str,
+    in_features: int,
+    model_params: dict,
+) -> nn.Module:
+    model_type = model_type.lower().strip()
+    if model_type == "tcn":
+        return TCNBinaryPredictor(
+            in_features=in_features,
+            channels=model_params["tcn_channels"],
+            kernel_size=model_params["tcn_kernel_size"],
+            dropout=model_params["tcn_dropout"],
+        )
+    if model_type == "lstm":
+        return LSTMBinaryPredictor(
+            in_features=in_features,
+            hidden_size=model_params["lstm_hidden_size"],
+            num_layers=model_params["lstm_num_layers"],
+            dropout=model_params["lstm_dropout"],
+            bidirectional=model_params["lstm_bidirectional"],
+        )
+    raise ValueError(f"Unsupported model_type: {model_type}")
+
+
+def build_model_from_checkpoint(ckpt: dict) -> nn.Module:
+    model_type = ckpt.get("model_type", "tcn")
+    params = {
+        "tcn_channels": ckpt.get("tcn_channels", [64, 64, 32]),
+        "tcn_kernel_size": ckpt.get("tcn_kernel_size", 3),
+        "tcn_dropout": ckpt.get("tcn_dropout", 0.2),
+        "lstm_hidden_size": ckpt.get("lstm_hidden_size", 128),
+        "lstm_num_layers": ckpt.get("lstm_num_layers", 2),
+        "lstm_dropout": ckpt.get("lstm_dropout", 0.2),
+        "lstm_bidirectional": ckpt.get("lstm_bidirectional", False),
+    }
+    return build_binary_predictor(
+        model_type=model_type,
+        in_features=len(ckpt["feature_columns"]),
+        model_params=params,
+    )
+
+
 class BinaryFocalLoss(nn.Module):
     def __init__(self, alpha: float = 0.25, gamma: float = 2.0, eps: float = 1e-7) -> None:
         super().__init__()

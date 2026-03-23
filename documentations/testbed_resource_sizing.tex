@@ -1,0 +1,137 @@
+\documentclass[12pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[vietnamese,english]{babel}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{longtable}
+\usepackage{hyperref}
+\usepackage{xcolor}
+
+\hypersetup{
+	colorlinks=true,
+	linkcolor=blue,
+	urlcolor=blue,
+	citecolor=blue
+}
+
+\title{Uoc tinh tai nguyen may chu va chi phi cloud cho ProDDoS-NFV Testbed}
+\author{Project PAD-ONAP / ProDDoS-NFV}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\section{Gia dinh danh gia}
+
+\begin{enumerate}
+	\item Topology testbed: 2 attacker, 4 server, 4 VNF host, SDN controller + policy engine + API inference.
+	\item Muc tieu: danh gia mo hinh AI va orchestration trong moi truong hoc thuat, khong nham muc dich production ISP.
+	\item He thong co the chay tren Linux native, hoac tren VM Linux/WSL2 (co overhead ao hoa).
+\end{enumerate}
+
+\section{Bang sizing theo muc tan cong}
+
+\begin{longtable}{p{2.4cm} p{2.8cm} p{2.6cm} p{1.8cm} p{1.8cm} p{1.8cm} p{2.1cm} p{3.0cm}}
+\toprule
+\textbf{Muc} & \textbf{Luong tan cong mo phong} & \textbf{Flows/s muc tieu} & \textbf{CPU tong} & \textbf{RAM tong} & \textbf{SSD} & \textbf{NIC} & \textbf{Muc dich su dung} \\
+\midrule
+\endfirsthead
+
+\toprule
+\textbf{Muc} & \textbf{Luong tan cong mo phong} & \textbf{Flows/s muc tieu} & \textbf{CPU tong} & \textbf{RAM tong} & \textbf{SSD} & \textbf{NIC} & \textbf{Muc dich su dung} \\
+\midrule
+\endhead
+
+Low & 100 Mbps & 2,000--5,000 & 6 vCPU & 12 GB & 80 GB & 1 Gbps & Demo pipeline va kiem thu chuc nang \\
+Medium & 300--500 Mbps & 8,000--15,000 & 8 vCPU & 16--24 GB & 120 GB & 1 Gbps & Danh gia chinh cho luan van \\
+High & 800 Mbps--1 Gbps & 20,000--40,000 & 12--16 vCPU & 32 GB & 200 GB & 1--10 Gbps & Stress test nhieu scenario lien tuc \\
+
+\bottomrule
+\end{longtable}
+
+\section{Phan bo tai nguyen theo thanh phan (muc Medium)}
+
+\begin{table}[h!]
+\centering
+\renewcommand{\arraystretch}{1.2}
+\begin{tabular}{p{6.0cm} p{3.0cm} p{3.0cm} p{3.0cm}}
+\toprule
+\textbf{Thanh phan} & \textbf{CPU} & \textbf{RAM} & \textbf{Ghi chu} \\
+\midrule
+Mininet + traffic replay & 4--5 vCPU & 8--12 GB & Thanh phan ngan tai nguyen nhat \\
+Ryu controller + orchestration & 1--2 vCPU & 2--4 GB & Control plane \\
+API model inference (M1/M2) & 1 vCPU & 2 GB & Duoc chay on dinh voi CPU \\
+OS + buffer he thong & 1 vCPU & 2--4 GB & Du phong spike tai \\
+\bottomrule
+\end{tabular}
+\caption{Goi y phan bo tai nguyen cho cau hinh Medium.}
+\end{table}
+
+\section{Kich ban trien khai de xuat}
+
+\begin{enumerate}
+	\item \textbf{Mot may duy nhat (khuyen nghi cho luan van):} 8 vCPU, 16 GB RAM, 120 GB SSD, NIC 1 Gbps.
+	\item \textbf{Ba may tach rieng (on dinh hon):}
+	\begin{enumerate}
+		\item May A (Control plane): 4 vCPU, 8 GB RAM.
+		\item May B (Data plane Mininet): 8 vCPU, 16 GB RAM.
+		\item May C (Training): 8--16 vCPU, 32 GB RAM, co the them GPU.
+	\end{enumerate}
+\end{enumerate}
+
+\section{Bang uoc tinh chi phi cloud (tham khao)}
+
+\textit{Luu y:} Bang duoi day la uoc tinh tham khao theo gia on-demand pho bien, da lam tron. Gia thuc te phu thuoc region, OS, loai disk va chinh sach giam gia (Reserved/Savings Plan/Spot).
+
+\subsection{Gia theo gio (xap xi) cho cau hinh tuong duong}
+
+\begin{table}[h!]
+\centering
+\renewcommand{\arraystretch}{1.2}
+\begin{tabular}{p{2.4cm} p{4.2cm} p{3.0cm} p{3.0cm} p{3.0cm}}
+\toprule
+\textbf{Muc} & \textbf{Cau hinh tuong duong} & \textbf{AWS} & \textbf{Azure} & \textbf{GCP} \\
+\midrule
+Low & 6 vCPU / 12 GB / 80 GB SSD & 0.16--0.24 USD/h & 0.18--0.27 USD/h & 0.15--0.23 USD/h \\
+Medium & 8 vCPU / 16--24 GB / 120 GB SSD & 0.24--0.38 USD/h & 0.27--0.42 USD/h & 0.22--0.36 USD/h \\
+High & 12--16 vCPU / 32 GB / 200 GB SSD & 0.48--0.85 USD/h & 0.52--0.95 USD/h & 0.45--0.80 USD/h \\
+\bottomrule
+\end{tabular}
+\caption{Gia on-demand tham khao theo gio (compute + disk co ban).}
+\end{table}
+
+\subsection{Uoc tinh tong chi phi theo thang (730h)}
+
+\begin{table}[h!]
+\centering
+\renewcommand{\arraystretch}{1.2}
+\begin{tabular}{p{2.4cm} p{3.8cm} p{3.8cm} p{3.8cm}}
+\toprule
+\textbf{Muc} & \textbf{AWS / thang} & \textbf{Azure / thang} & \textbf{GCP / thang} \\
+\midrule
+Low & 117--175 USD & 131--197 USD & 110--168 USD \\
+Medium & 175--277 USD & 197--307 USD & 161--263 USD \\
+High & 350--621 USD & 380--694 USD & 329--584 USD \\
+\bottomrule
+\end{tabular}
+\caption{Uoc tinh chi phi theo thang (730 gio), chua tinh egress lon.}
+\end{table}
+
+\section{Khuyen nghi van hanh}
+
+\begin{enumerate}
+	\item Muc de xuat cho luan van: \textbf{8 vCPU + 16 GB RAM + 120 GB SSD + 1 Gbps}. Day la diem can bang giua chi phi va do on dinh.
+	\item Neu chay tren Windows qua VM/WSL2, nen cong them \textbf{20--30\%} CPU va RAM do overhead ao hoa.
+	\item Neu replay traffic nang hoac chay evaluation lien tuc, nen nang cap len \textbf{12 vCPU + 32 GB RAM}.
+\end{enumerate}
+
+\section{Doan mo ta de dua vao bao cao}
+
+\noindent
+Testbed duoc cap phat 8 vCPU, 16 GB RAM, 120 GB SSD va ket noi 1 Gbps, dap ung on dinh cho kich ban medium voi 8,000--15,000 flows/s. Tai nguyen duoc uu tien cho data plane (Mininet va traffic replay), trong khi control plane (Ryu, orchestration, API) chiem ty trong thap hon. Neu trien khai tren Windows thong qua VM/WSL2, he thong du phong them 20--30\% tai nguyen de giam anh huong do ao hoa.
+
+\end{document}

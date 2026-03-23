@@ -1,0 +1,168 @@
+<mxfile host="app.diagrams.net" modified="2026-03-22T00:00:00.000Z" agent="Mozilla/5.0" version="24.7.17" editor="draw.io">
+  <diagram id="pad-onap-pipeline" name="PAD-ONAP Solution Pipeline">
+    <mxGraphModel dx="1600" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1920" pageHeight="1400" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+
+        <mxCell id="phaseData" value="Phase I - Data Plane" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#8f8f8f;dashed=1;fontFamily=Times New Roman;fontSize=14;fontStyle=1;align=left;verticalAlign=top;spacingLeft=12;spacingTop=10;" vertex="1" parent="1">
+          <mxGeometry x="60" y="120" width="360" height="1040" as="geometry"/>
+        </mxCell>
+        <mxCell id="phaseAI" value="Phase II - AI Inference" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#8f8f8f;dashed=1;fontFamily=Times New Roman;fontSize=14;fontStyle=1;align=left;verticalAlign=top;spacingLeft=12;spacingTop=10;" vertex="1" parent="1">
+          <mxGeometry x="450" y="120" width="470" height="1040" as="geometry"/>
+        </mxCell>
+        <mxCell id="phaseOrch" value="Phase III - ONAP Orchestration &amp; Mitigation" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#8f8f8f;dashed=1;fontFamily=Times New Roman;fontSize=14;fontStyle=1;align=left;verticalAlign=top;spacingLeft=12;spacingTop=10;" vertex="1" parent="1">
+          <mxGeometry x="950" y="120" width="390" height="1040" as="geometry"/>
+        </mxCell>
+        <mxCell id="phaseLearn" value="Phase IV - Feedback Learning" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#8f8f8f;dashed=1;fontFamily=Times New Roman;fontSize=14;fontStyle=1;align=left;verticalAlign=top;spacingLeft=12;spacingTop=10;" vertex="1" parent="1">
+          <mxGeometry x="1370" y="120" width="480" height="1040" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="title" value="PAD-ONAP Solution Pipeline" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontFamily=Times New Roman;fontSize=26;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="560" y="20" width="840" height="42" as="geometry"/>
+        </mxCell>
+        <mxCell id="subtitle" value="Proactive AI-Driven DDoS Defense using ONAP Service Orchestration (IEEE-Style View)" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontFamily=Times New Roman;fontSize=16;fontStyle=2;" vertex="1" parent="1">
+          <mxGeometry x="500" y="64" width="960" height="30" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="collect" value="1. Traffic Collection&#xa;sFlow / IPFIX / P4 Telemetry" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#ffffff;strokeColor=#4f4f4f;strokeWidth=1.5;fontFamily=Times New Roman;fontSize=14;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="120" y="220" width="240" height="78" as="geometry"/>
+        </mxCell>
+        <mxCell id="feature" value="2. Feature Engineering&#xa;15 selected features" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#ffffff;strokeColor=#4f4f4f;strokeWidth=1.5;fontFamily=Times New Roman;fontSize=14;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="120" y="350" width="240" height="78" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="predict" value="3. M1 Predictor (TCN/LSTM)&#xa;Estimate attack probability p̂(t+Δ)" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#ffffff;strokeColor=#4f4f4f;strokeWidth=1.5;fontFamily=Times New Roman;fontSize=14;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="560" y="200" width="260" height="88" as="geometry"/>
+        </mxCell>
+        <mxCell id="dec1" value="p̂ &gt; τpre ?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#4f4f4f;strokeWidth=1.5;fontFamily=Times New Roman;fontSize=14;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="625" y="340" width="130" height="92" as="geometry"/>
+        </mxCell>
+        <mxCell id="monitor" value="Continue Monitoring" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#ffffff;strokeColor=#4f4f4f;strokeWidth=1.5;fontFamily=Times New Roman;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="500" y="470" width="180" height="64" as="geometry"/>
+        </mxCell>
+        <mxCell id="classify" value="4. M2 Classifier&#xa;Predict attack class k̂" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#ffffff;strokeColor=#4f4f4f;strokeWidth=1.5;fontFamily=Times New Roman;fontSize=14;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="560" y="580" width="260" height="82" as="geometry"/>
+        </mxCell>
+        <mxCell id="standby" value="5. ONAP SO Pre-Provision&#xa;Instantiate VNF chain Ck in standby" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#ffffff;strokeColor=#4f4f4f;strokeWidth=1.5;fontFamily=Times New Roman;fontSize=14;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="540" y="700" width="300" height="88" as="geometry"/>
+        </mxCell>
+        <mxCell id="dec2" value="p̂ &gt; τfull ?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#4f4f4f;strokeWidth=1.5;fontFamily=Times New Roman;fontSize=14;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="625" y="840" width="130" height="92" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="activate" value="6. ONAP SO Activation&#xa;Activate chain and reroute traffic" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#ffffff;strokeColor=#4f4f4f;strokeWidth=1.5;fontFamily=Times New Roman;fontSize=14;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="1020" y="220" width="250" height="88" as="geometry"/>
+        </mxCell>
+        <mxCell id="mitigate" value="7. Mitigation VNF Chain&#xa;Vol: RateLimiter→Scrubber&#xa;Proto: Stateful FW→IDS&#xa;Slow: DPI→Behavior Analyzer&#xa;App: WAF→RateLimiter" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#ffffff;strokeColor=#4f4f4f;strokeWidth=1.5;fontFamily=Times New Roman;fontSize=13;" vertex="1" parent="1">
+          <mxGeometry x="1000" y="380" width="290" height="132" as="geometry"/>
+        </mxCell>
+        <mxCell id="dec3" value="Attack&#xa;Mitigated?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#4f4f4f;strokeWidth=1.5;fontFamily=Times New Roman;fontSize=14;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="1060" y="570" width="170" height="110" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="teardown" value="8. SO Teardown&#xa;Terminate chain and scale down" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#ffffff;strokeColor=#4f4f4f;strokeWidth=1.5;fontFamily=Times New Roman;fontSize=14;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="1460" y="220" width="300" height="88" as="geometry"/>
+        </mxCell>
+        <mxCell id="feedback" value="9. M4 Feedback Loop&#xa;Label new samples and retrain M1/M2" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#ffffff;strokeColor=#4f4f4f;strokeWidth=1.5;fontFamily=Times New Roman;fontSize=14;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="1460" y="370" width="300" height="88" as="geometry"/>
+        </mxCell>
+        <mxCell id="deploy" value="10. Model Redeployment&#xa;Update DCAE with new model" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#ffffff;strokeColor=#4f4f4f;strokeWidth=1.5;fontFamily=Times New Roman;fontSize=14;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="1460" y="520" width="300" height="84" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="legend" value="Decision policy: τpre &lt; τfull. Dashed arrows denote learning/monitoring loops." style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#ffffff;strokeColor=#7f7f7f;dashed=1;fontFamily=Times New Roman;fontSize=13;align=left;spacingLeft=10;" vertex="1" parent="1">
+          <mxGeometry x="560" y="1230" width="760" height="56" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="e1" style="endArrow=block;endFill=1;html=1;strokeWidth=2;strokeColor=#4f4f4f;" edge="1" parent="1" source="collect" target="feature">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e2" style="endArrow=block;endFill=1;html=1;strokeWidth=2;strokeColor=#4f4f4f;" edge="1" parent="1" source="feature" target="predict">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="500" y="390"/>
+              <mxPoint x="500" y="244"/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e3" style="endArrow=block;endFill=1;html=1;strokeWidth=2;strokeColor=#4f4f4f;" edge="1" parent="1" source="predict" target="dec1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e4" value="No" style="endArrow=block;endFill=1;html=1;strokeWidth=2;strokeColor=#4f4f4f;fontFamily=Times New Roman;fontSize=12;" edge="1" parent="1" source="dec1" target="monitor">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e5" value="Yes" style="endArrow=block;endFill=1;html=1;strokeWidth=2;strokeColor=#4f4f4f;fontFamily=Times New Roman;fontSize=12;" edge="1" parent="1" source="dec1" target="classify">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e6" style="endArrow=block;endFill=1;html=1;strokeWidth=2;strokeColor=#4f4f4f;" edge="1" parent="1" source="classify" target="standby">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e7" style="endArrow=block;endFill=1;html=1;strokeWidth=2;strokeColor=#4f4f4f;" edge="1" parent="1" source="standby" target="dec2">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e8" value="Wait/Observe" style="endArrow=block;endFill=1;html=1;strokeWidth=2;dashed=1;strokeColor=#6f6f6f;fontFamily=Times New Roman;fontSize=12;" edge="1" parent="1" source="dec2" target="predict">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="500" y="886"/>
+              <mxPoint x="500" y="244"/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e9" value="Yes" style="endArrow=block;endFill=1;html=1;strokeWidth=2;strokeColor=#4f4f4f;fontFamily=Times New Roman;fontSize=12;" edge="1" parent="1" source="dec2" target="activate">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="900" y="886"/>
+              <mxPoint x="900" y="264"/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e10" style="endArrow=block;endFill=1;html=1;strokeWidth=2;strokeColor=#4f4f4f;" edge="1" parent="1" source="activate" target="mitigate">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e11" style="endArrow=block;endFill=1;html=1;strokeWidth=2;strokeColor=#4f4f4f;" edge="1" parent="1" source="mitigate" target="dec3">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e12" value="Yes" style="endArrow=block;endFill=1;html=1;strokeWidth=2;strokeColor=#4f4f4f;fontFamily=Times New Roman;fontSize=12;" edge="1" parent="1" source="dec3" target="teardown">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1380" y="625"/>
+              <mxPoint x="1380" y="264"/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e13" value="No" style="endArrow=block;endFill=1;html=1;strokeWidth=2;dashed=1;strokeColor=#6f6f6f;fontFamily=Times New Roman;fontSize=12;" edge="1" parent="1" source="dec3" target="mitigate">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1170" y="720"/>
+              <mxPoint x="1170" y="512"/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e14" style="endArrow=block;endFill=1;html=1;strokeWidth=2;strokeColor=#4f4f4f;" edge="1" parent="1" source="teardown" target="feedback">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e15" style="endArrow=block;endFill=1;html=1;strokeWidth=2;strokeColor=#4f4f4f;" edge="1" parent="1" source="feedback" target="deploy">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="e16" value="Learning loop" style="endArrow=block;endFill=1;html=1;strokeWidth=2;dashed=1;strokeColor=#6f6f6f;fontFamily=Times New Roman;fontSize=12;" edge="1" parent="1" source="deploy" target="collect">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1520" y="640"/>
+              <mxPoint x="1520" y="102"/>
+              <mxPoint x="240" y="102"/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e17" value="Monitoring loop" style="endArrow=block;endFill=1;html=1;strokeWidth=2;dashed=1;strokeColor=#6f6f6f;fontFamily=Times New Roman;fontSize=12;" edge="1" parent="1" source="monitor" target="collect">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="450" y="502"/>
+              <mxPoint x="450" y="259"/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
