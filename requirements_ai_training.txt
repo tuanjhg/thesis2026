@@ -1,0 +1,25 @@
+# AI Training Requirements
+# Install with: pip install -r requirements_ai_training.txt
+
+# Core ML
+xgboost==2.0.3
+scikit-learn==1.4.0
+numpy==1.26.0
+pandas==2.2.0
+
+# Deep Learning
+torch==2.2.0
+torchvision==0.17.0
+torchaudio==2.2.0
+
+# Model Explanation
+shap==0.44.0
+
+# Visualization
+matplotlib==3.8.0
+seaborn==0.13.0
+
+# Utilities
+requests==2.31.0
+tqdm==4.66.1
+pyyaml==6.0

@@ -1,0 +1,17 @@
+{
+  "saved_at": "2026-04-08 07:27:25",
+  "best_auc_h0": 0.99428672812914,
+  "best_acc_h0": 0.9970464614336022,
+  "best_hp": {
+    "hidden_dim": 64,
+    "num_heads": 2,
+    "num_layers": 2,
+    "lstm_hidden": 128,
+    "lstm_layers": 1,
+    "dropout": 0.2,
+    "lr": 0.001,
+    "batch_size": 256,
+    "epochs": 70,
+    "patience": 12
+  }
+}

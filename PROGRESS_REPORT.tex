@@ -1,0 +1,349 @@
+% !TeX program = xelatex
+\documentclass[12pt,a4paper]{article}
+
+\usepackage[a4paper,margin=2.2cm]{geometry}
+\usepackage{fontspec}
+\usepackage{polyglossia}
+\setmainlanguage{vietnamese}
+\setotherlanguage{english}
+\setmainfont{Times New Roman}
+
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{float}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue]{hyperref}
+
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0.6em}
+
+\title{Báo Cáo Tiến Độ\\
+\large PAD-ONAP: Proactive AI-Driven DDoS Defense on ONAP\\
+\normalsize Phase AI (M2) -- Kết quả Thực nghiệm}
+\author{Nhóm nghiên cứu PAD-ONAP}
+\date{\today}
+
+\begin{document}
+\maketitle
+\tableofcontents
+\newpage
+
+\section{Tổng Quan Hệ thống}
+
+Luồng dữ liệu PAD-ONAP:
+
+\begin{center}
+\begin{tabular}{c c c c c}
+\textbf{Mạng} & \textbf{S1} & \textbf{S2} & \textbf{S3-AI} & \textbf{S4} \\
+Traffic & gNMI & Apache Flink & XGBoost / Transformer-LSTM & Risk/Policy \\
+$\rightarrow$ & $\rightarrow$ & Feature Extractor & Inference + Forecast & ONAP VES \\
+ &  & 100-flow/5s, 17 features & 4-horizon & Mitigation
+\end{tabular}
+\end{center}
+
+Phạm vi báo cáo này tập trung vào khối S3-AI: huấn luyện và đánh giá mô hình phát hiện DDoS.
+
+\section{Dataset CICDDoS2019}
+
+\begin{table}[H]
+\centering
+\caption{Thông tin tổng quan dataset}
+\begin{tabular}{>{\raggedright\arraybackslash}p{5cm} p{9cm}}
+\toprule
+\textbf{Thuộc tính} & \textbf{Giá trị} \\
+\midrule
+Nguồn & Canadian Institute for Cybersecurity (2019) \\
+Raw data & 18 file CSV (khoảng 5GB), 2 ngày: 03/11 và 01/12 \\
+Cửa sổ trích xuất & 100 flow (khoảng 5 giây), slide 50 flow \\
+Tổng số windows & 35,928 \\
+Train / Test & 28,742 / 7,186 (temporal split 80/20) \\
+Số features & 17 (entropy + rate) \\
+BENIGN unique & 646 windows (oversampling $\times 21.9$) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[H]
+\centering
+\caption{Phân phối class trong tập train}
+\begin{tabular}{lrr}
+\toprule
+\textbf{Class} & \textbf{Số windows} & \textbf{Tỉ lệ} \\
+\midrule
+Normal (BENIGN) & 14,175 & 49.3\% \\
+Amplification (DNS/NTP/LDAP/...) & 10,575 & 36.8\% \\
+UDP\_Flood & 1,996 & 6.9\% \\
+SYN\_Flood & 998 & 3.5\% \\
+HTTP\_Flood (TFTP proxy) & 998 & 3.5\% \\
+ICMP\_Flood & 0 & -- \\
+Slow\_rate & 0 & -- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Lưu ý:} Temporal split gây distribution shift, đặc biệt class UDP tăng từ 6.9\% (train) lên 27.1\% (test).
+
+\section{Bộ Đặc Trưng 17 Features}
+
+\subsection{Nhóm rate}
+\begin{itemize}[leftmargin=2em]
+\item \texttt{pkt\_rate}: số gói/giây.
+\item \texttt{byte\_rate}: số byte/giây.
+\item \texttt{new\_flows\_rate}: flow mới/giây.
+\item \texttt{flow\_duration\_mean}: thời gian trung bình mỗi flow.
+\end{itemize}
+
+\subsection{Nhóm entropy (Shannon)}
+\begin{itemize}[leftmargin=2em]
+\item \texttt{src\_ip\_entropy} (proxy: entropy Avg Fwd Segment Size $\times 10$).
+\item \texttt{dst\_ip\_entropy} (proxy: entropy Avg Bwd Segment Size $\times 10$).
+\item \texttt{src\_port\_entropy}.
+\item \texttt{dst\_port\_entropy} (SHAP dominant).
+\end{itemize}
+
+\subsection{Nhóm protocol, packet size, inter-arrival}
+\begin{itemize}[leftmargin=2em]
+\item Protocol: \texttt{proto\_dist\_tcp}, \texttt{proto\_dist\_udp}, \texttt{proto\_dist\_icmp}, \texttt{syn\_ratio}, \texttt{fin\_ratio}.
+\item Packet size: \texttt{avg\_pkt\_size}, \texttt{pkt\_size\_std}.
+\item Inter-arrival: \texttt{inter\_arrival\_mean}, \texttt{inter\_arrival\_std}.
+\end{itemize}
+
+\textbf{ANOVA F-score top-3}: \texttt{dst\_port\_entropy}, \texttt{src\_port\_entropy}, \texttt{proto\_dist\_tcp}.
+
+\section{EDA -- Nội Dung Chính}
+
+Phân tích EDA trong báo cáo tập trung vào các nội dung chính sau:
+\begin{itemize}[leftmargin=2em]
+\item Phân phối class mô tả mức mất cân bằng và mức distribution shift giữa train-test theo temporal split.
+\item Ma trận tương quan cho thấy các cặp feature có quan hệ cấu trúc, quan trọng nhất là cặp \texttt{proto\_dist\_tcp}/\texttt{proto\_dist\_udp}.
+\item PCA và t-SNE xác nhận khả năng tách cụm class, trong đó UDP\_Flood và Amplification có overlap nhỏ.
+\item Outlier analysis cho thấy các giá trị cực trị ở \texttt{flow\_duration\_mean}, \texttt{inter\_arrival\_std}, \texttt{pkt\_size\_std} và đây là tín hiệu phân biệt hữu ích.
+\end{itemize}
+
+\begin{table}[H]
+\centering
+\caption{Tương quan cao cần ghi nhận}
+\begin{tabular}{lll}
+\toprule
+\textbf{Cặp feature} & \textbf{Pearson $r$} & \textbf{Ghi chú} \\
+\midrule
+proto\_dist\_tcp $\leftrightarrow$ proto\_dist\_udp & -0.9992 & Cấu trúc tổng xác suất protocol \\
+dst\_ip\_entropy $\leftrightarrow$ dst\_port\_entropy & -0.9554 & Cùng mang tín hiệu phân biệt \\
+inter\_arrival\_mean $\leftrightarrow$ inter\_arrival\_std & +0.8868 & DDoS có xu hướng mean $\approx$ std \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Kết luận EDA:
+\begin{itemize}[leftmargin=2em]
+\item Hai thành phần PCA đầu tiên giải thích khoảng 72\% phương sai.
+\item t-SNE cho thấy 5 class tách cụm rõ, chỉ có overlap nhỏ giữa UDP và Amplification.
+\item Outlier cao ở \texttt{flow\_duration\_mean}, \texttt{inter\_arrival\_std}, \texttt{pkt\_size\_std}; đây là signal thay vì nhiễu.
+\end{itemize}
+
+\section{Track A -- XGBoost 7-Class Classifier}
+
+\subsection{Thiết kế huấn luyện}
+\begin{itemize}[leftmargin=2em]
+\item Input: 17 features/window.
+\item FGSM adversarial augmentation ($\epsilon = 0.01$) cho attack samples, mở rộng dữ liệu huấn luyện lên gấp đôi.
+\item Auto hyper-parameter search 4 cấu hình, early stopping 30 rounds.
+\item Cấu hình GPU: \texttt{hist + cuda} (RTX 3050).
+\end{itemize}
+
+\subsection{Kết quả holdout}
+\begin{table}[H]
+\centering
+\caption{Kết quả holdout (temporal test set)}
+\begin{tabular}{lccc}
+\toprule
+\textbf{Metric} & \textbf{Giá trị} & \textbf{Target} & \textbf{Đạt} \\
+\midrule
+Accuracy & 0.9825 & $\geq 0.95$ & Có \\
+Macro F1 & 0.9642 & $\geq 0.90$ & Có \\
+AUC (OvR macro) & 0.9958 & -- & Có \\
+P99 inference & 2.2 ms & $< 10$ ms & Có \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Những nhầm lẫn chính trong confusion matrix:
+\begin{itemize}[leftmargin=2em]
+\item 77 mẫu UDP\_Flood bị nhầm sang Amplification.
+\item 54 mẫu SYN\_Flood bị nhầm sang UDP\_Flood.
+\end{itemize}
+
+SHAP Top-5 feature: \texttt{src\_port\_entropy}, \texttt{proto\_dist\_tcp}, \texttt{proto\_dist\_udp}, \texttt{avg\_pkt\_size}, \texttt{inter\_arrival\_mean}.
+
+\section{Cross-Validation Leak-Free}
+
+\subsection{Phương pháp}
+\begin{itemize}[leftmargin=2em]
+\item 5-Fold Stratified CV.
+\item BENIGN oversampling chỉ thực hiện trong train fold.
+\item Attack-only CV cho 4 class: UDP, SYN, HTTP, Amplification.
+\end{itemize}
+
+\begin{table}[H]
+\centering
+\caption{Kết quả 5-Fold CV (attack-only)}
+\begin{tabular}{lcc}
+\toprule
+\textbf{Metric} & \textbf{Mean} & \textbf{Std} \\
+\midrule
+Accuracy & 0.9987 & $\pm 0.0004$ \\
+Macro F1 & 0.9981 & $\pm 0.0005$ \\
+AUC & 1.0000 & -- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[H]
+\centering
+\caption{Per-class F1 trong attack-only CV}
+\begin{tabular}{lc}
+\toprule
+\textbf{Class} & \textbf{F1} \\
+\midrule
+UDP\_Flood & $0.9971 \pm 0.0009$ \\
+SYN\_Flood & $0.9956 \pm 0.0010$ \\
+HTTP\_Flood & 1.0000 \\
+Amplification & 0.9998 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Track B -- Transformer + LSTM 4-Horizon Forecaster}
+
+\subsection{Kiến trúc mô hình}
+\begin{verbatim}
+Input: (batch, 12, 17)   # 12 timesteps x 5s = 60s rolling window
+Linear(17->64)
++ Sinusoidal Positional Encoding
+-> TransformerEncoder (4 heads, d_model=64, 2 layers)
+-> LSTM (hidden=128, 2 layers, dropout=0.2)
+-> FC: 128 -> 64 -> 4
+-> Sigmoid -> [P(t+30s), P(t+60s), P(t+90s), P(t+120s)]
+\end{verbatim}
+
+Thiết lập huấn luyện: BCE theo từng horizon, class weight attack:normal = 10:1, mixed precision (AMP).
+
+\begin{table}[H]
+\centering
+\caption{Kết quả dự báo theo horizon}
+\begin{tabular}{lccc}
+\toprule
+\textbf{Horizon} & \textbf{AUC} & \textbf{Accuracy} & \textbf{Target AUC} \\
+\midrule
+t+30s & 0.9884 & 0.9804 & $\geq 0.90$ \\
+t+60s & 0.9833 & 0.9724 & $\geq 0.90$ \\
+t+90s & 0.9772 & 0.9674 & $\geq 0.90$ \\
+t+120s & 0.9711 & 0.9596 & $\geq 0.90$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+P99 latency của Track B: 7.68 ms (\textbf{Đạt yêu cầu real-time} $< 10$ ms).
+
+Cơ chế proactive trigger: nếu $P(t+30s) > 0.70$ thì phát tín hiệu Tier-2 pre-position cho khối S4.
+
+\section{So Sánh Mô Hình ML}
+
+\begin{table}[H]
+\centering
+\caption{So sánh holdout test (temporal 20\%)}
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Model} & \textbf{Accuracy} & \textbf{Macro F1} & \textbf{AUC} & \textbf{P99 Latency} \\
+\midrule
+XGBoost & 0.9812 & 0.9613 & 0.9978 & 2.2 ms \\
+LightGBM & 0.9786 & 0.9556 & 0.9980 & 5.1 ms \\
+Random Forest & 0.9900 & 0.9842 & 0.9989 & 90.0 ms \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[H]
+\centering
+\caption{So sánh 5-Fold CV (attack + normal)}
+\begin{tabular}{lccc}
+\toprule
+\textbf{Model} & \textbf{Accuracy} & \textbf{Macro F1} & \textbf{AUC} \\
+\midrule
+XGBoost & $0.9992 \pm 0.0005$ & $0.9990 \pm 0.0007$ & 0.9999 \\
+LightGBM & $0.9992 \pm 0.0007$ & $0.9989 \pm 0.0010$ & 0.9999 \\
+Random Forest & $0.9996 \pm 0.0004$ & $0.9995 \pm 0.0005$ & 1.0000 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Kết luận chọn mô hình production:}
+Random Forest cho F1 cao nhất nhưng trễ (P99 = 90 ms), không đáp ứng ràng buộc real-time. XGBoost là phương án cân bằng tốt nhất giữa hiệu năng và độ trễ.
+
+\section{Giới Hạn Đã Biết}
+
+\begin{table}[H]
+\centering
+\caption{Documented limitations}
+\begin{tabular}{p{0.8cm} p{9.2cm} p{3cm}}
+\toprule
+\textbf{\#} & \textbf{Giới hạn} & \textbf{Mức ảnh hưởng} \\
+\midrule
+L1 & BENIGN chỉ có 646 unique windows, cần oversampling $\times 21.9$. & Trung bình \\
+L2 & Distribution shift giữa train-test do temporal split. & Thấp \\
+L3 & ICMP\_Flood (class 4) vắng trong CICDDoS2019. & Cao \\
+L4 & Slow\_rate (class 6) vắng trong CICDDoS2019. & Cao \\
+L5 & Tương quan cấu trúc \texttt{proto\_dist\_tcp} và \texttt{proto\_dist\_udp} ($r=-0.9992$). & Thấp \\
+L6 & Chỉ đánh giá trên một dataset, chưa có cross-dataset test. & Trung bình \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Tổng Hợp Kết Quả Phase AI (M2)}
+
+\begin{table}[H]
+\centering
+\caption{Tổng hợp hai track AI}
+\begin{tabular}{p{2.5cm} p{11.5cm}}
+\toprule
+\textbf{Hạng mục} & \textbf{Kết quả} \\
+\midrule
+Track A & XGBoost 7-class: Accuracy = 0.9825, Macro F1 = 0.9642, AUC = 0.9958, P99 = 2.2 ms. \\
+Track B & Transformer+LSTM 4-horizon: AUC t+30s = 0.9884, AUC t+120s = 0.9711, P99 = 7.68 ms. \\
+Proactive trigger & Kích hoạt pre-position khi $P(t+30s) > 0.70$. \\
+XAI & SHAP TreeExplainer giải thích theo feature-level cho quyết định inference. \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Trạng Thái Dự án và Bước Tiếp Theo}
+
+\subsection{Hạng mục đã hoàn thành}
+\begin{itemize}[leftmargin=2em]
+\item S1: gNMI collector (giả lập).
+\item S2: Apache Flink feature extractor (17 features).
+\item S3-AI: Feature extraction + training pipeline.
+\item S3-AI Track A: XGBoost 7-class + SHAP.
+\item S3-AI Track B: Transformer+LSTM 4-horizon.
+\item EDA (13 hình), ML comparison, CV analysis.
+\item Mô hình đã lưu: \texttt{models\_v2/xgboost\_7class\_v2.json}, \texttt{models/transformer\_lstm\_v2.pth}.
+\end{itemize}
+
+\subsection{Hạng mục đang triển khai}
+\begin{itemize}[leftmargin=2em]
+\item Inference layer cho real-time scoring pipeline.
+\item ADWIN concept drift detection (theo spec \S4.4).
+\item S4 Risk/Policy engine tích hợp ONAP VES event.
+\item Integration test end-to-end: Flink $\rightarrow$ S3-AI $\rightarrow$ S4.
+\end{itemize}
+
+\textbf{Timeline dự kiến:} hoàn tất S4 và tích hợp trong 3--4 tuần tiếp theo.
+
+\section*{Kết Luận}
+Bản báo cáo này cho thấy phase AI (M2) của PAD-ONAP đã đạt mục tiêu cả về độ chính xác và độ trễ thời gian thực. Hai năng lực cốt lõi đã được xác lập gồm: (i) phát hiện đa lớp DDoS với chất lượng cao bằng XGBoost, và (ii) dự báo sớm 30--120 giây bằng Transformer+LSTM để hỗ trợ cơ chế phòng thủ chủ động. Các giới hạn dữ liệu đã được lượng hóa và tài liệu hóa đầy đủ, bảo đảm tính minh bạch học thuật và khả năng bảo vệ luận văn.
+
+\end{document}

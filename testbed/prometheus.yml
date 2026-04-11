@@ -1,0 +1,33 @@
+global:
+  scrape_interval:     5s
+  evaluation_interval: 5s
+  external_labels:
+    project: 'pad-onap'
+    env:     'testbed'
+
+# Alerting (placeholder — connect to Alertmanager if needed)
+# alerting:
+#   alertmanagers:
+#     - static_configs:
+#         - targets: ['alertmanager:9093']
+
+scrape_configs:
+
+  # PAD-ONAP Metrics Exporter (gNMI → Prometheus)
+  - job_name: 'pad-gnmi-metrics'
+    static_configs:
+      - targets: ['metrics-exporter:9091']
+    metrics_path: '/metrics'
+    scrape_interval: 2s
+
+  # NetFlow Collector stats
+  - job_name: 'pad-netflow-collector'
+    static_configs:
+      - targets: ['netflow-collector:7070']
+    metrics_path: '/metrics'
+    scrape_interval: 5s
+
+  # Prometheus self-monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
