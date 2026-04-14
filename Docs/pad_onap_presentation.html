@@ -1,0 +1,1731 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>PAD-ONAP — Proactive AI-Driven DDoS Defense</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet"/>
+<style>
+/* ═══════════════════════════════════════════════════════
+   ROOT & RESET
+═══════════════════════════════════════════════════════ */
+:root {
+  --navy:    #080c18;
+  --navy2:   #0d1428;
+  --navy3:   #111c38;
+  --cyan:    #00d4ff;
+  --cyan2:   #00a8cc;
+  --magenta: #ff006e;
+  --amber:   #ffb700;
+  --green:   #00ff9d;
+  --white:   #e8edf5;
+  --muted:   #7a8aaa;
+  --card:    rgba(255,255,255,0.04);
+  --border:  rgba(0,212,255,0.15);
+  --glow:    0 0 30px rgba(0,212,255,0.25);
+  --font-h:  'Space Grotesk', sans-serif;
+  --font-m:  'JetBrains Mono', monospace;
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { width: 100%; height: 100%; overflow: hidden; background: var(--navy); color: var(--white); font-family: var(--font-h); }
+
+/* ═══════════════════════════════════════════════════════
+   SLIDESHOW ENGINE
+═══════════════════════════════════════════════════════ */
+#deck { width: 100vw; height: 100vh; height: 100dvh; position: relative; overflow: hidden; }
+
+.slide {
+  position: absolute; inset: 0;
+  width: 100%; height: 100vh; height: 100dvh;
+  overflow: hidden;
+  display: flex; flex-direction: column;
+  padding: clamp(28px,4vh,52px) clamp(32px,5vw,80px);
+  opacity: 0; pointer-events: none;
+  transform: translateX(60px);
+  transition: opacity .55s cubic-bezier(.4,0,.2,1), transform .55s cubic-bezier(.4,0,.2,1);
+  will-change: opacity, transform;
+}
+.slide.active {
+  opacity: 1; pointer-events: auto;
+  transform: translateX(0);
+}
+.slide.exit {
+  opacity: 0;
+  transform: translateX(-60px);
+  transition-duration: .35s;
+}
+
+/* Background grid */
+.slide::before {
+  content: '';
+  position: absolute; inset: 0;
+  background:
+    linear-gradient(rgba(0,212,255,.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0,212,255,.03) 1px, transparent 1px);
+  background-size: 40px 40px;
+  pointer-events: none;
+}
+
+/* Animated corner accents */
+.slide::after {
+  content: '';
+  position: absolute; top: 16px; right: 16px;
+  width: 80px; height: 80px;
+  border-top: 1px solid var(--cyan); border-right: 1px solid var(--cyan);
+  opacity: .4; pointer-events: none;
+}
+
+/* Slide BG gradients */
+.slide { background: radial-gradient(ellipse at 80% 20%, rgba(0,212,255,.05) 0%, transparent 60%), var(--navy); }
+.slide.accent-magenta { background: radial-gradient(ellipse at 20% 80%, rgba(255,0,110,.07) 0%, transparent 60%), var(--navy); }
+.slide.accent-green   { background: radial-gradient(ellipse at 80% 80%, rgba(0,255,157,.06) 0%, transparent 60%), var(--navy); }
+.slide.accent-amber   { background: radial-gradient(ellipse at 50% 20%, rgba(255,183,0,.06) 0%, transparent 60%), var(--navy); }
+
+/* ═══════════════════════════════════════════════════════
+   TYPOGRAPHY
+═══════════════════════════════════════════════════════ */
+.slide-label {
+  font-family: var(--font-m); font-size: clamp(9px,1.1vw,12px);
+  letter-spacing: .2em; text-transform: uppercase;
+  color: var(--cyan); opacity: .7;
+  margin-bottom: clamp(6px,1vh,14px);
+}
+h1 { font-size: clamp(28px,4.5vw,62px); font-weight: 700; line-height: 1.1; }
+h2 { font-size: clamp(20px,2.8vw,38px); font-weight: 600; line-height: 1.2; margin-bottom: clamp(8px,1.5vh,20px); }
+h3 { font-size: clamp(14px,1.8vw,22px); font-weight: 600; color: var(--cyan); margin-bottom: clamp(4px,1vh,12px); }
+p, li { font-size: clamp(11px,1.35vw,17px); line-height: 1.6; color: #c8d4e8; }
+.mono { font-family: var(--font-m); }
+
+.gradient-text { background: linear-gradient(135deg, var(--cyan), #a78bfa); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+.cyan  { color: var(--cyan); }
+.mag   { color: var(--magenta); }
+.amb   { color: var(--amber); }
+.grn   { color: var(--green); }
+
+/* ═══════════════════════════════════════════════════════
+   LAYOUT HELPERS
+═══════════════════════════════════════════════════════ */
+.cols { display: grid; gap: clamp(12px,2vw,32px); flex: 1; align-items: start; }
+.col2 { grid-template-columns: 1fr 1fr; }
+.col3 { grid-template-columns: 1fr 1fr 1fr; }
+.col-6040 { grid-template-columns: 6fr 4fr; }
+.col-4060 { grid-template-columns: 4fr 6fr; }
+.col-3070 { grid-template-columns: 3fr 7fr; }
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: clamp(10px,1.8vh,22px) clamp(12px,2vw,24px);
+}
+.card-cyan  { border-color: rgba(0,212,255,.3); }
+.card-mag   { border-color: rgba(255,0,110,.3); }
+.card-amb   { border-color: rgba(255,183,0,.3); }
+.card-grn   { border-color: rgba(0,255,157,.3); }
+
+.badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 12px; border-radius: 20px;
+  font-family: var(--font-m); font-size: clamp(10px,1.1vw,13px); font-weight: 700;
+  border: 1px solid currentColor;
+}
+.badge-cyan  { color: var(--cyan);    background: rgba(0,212,255,.1); }
+.badge-mag   { color: var(--magenta); background: rgba(255,0,110,.1); }
+.badge-amb   { color: var(--amber);   background: rgba(255,183,0,.1); }
+.badge-grn   { color: var(--green);   background: rgba(0,255,157,.1); }
+
+.metric-box {
+  text-align: center;
+  padding: clamp(8px,1.5vh,18px);
+  border-radius: 8px;
+  background: var(--card);
+  border: 1px solid var(--border);
+}
+.metric-box .val {
+  font-size: clamp(22px,3vw,42px); font-weight: 700; font-family: var(--font-m);
+  display: block; line-height: 1;
+}
+.metric-box .lbl { font-size: clamp(9px,1vw,12px); color: var(--muted); margin-top: 4px; }
+
+ul { list-style: none; display: flex; flex-direction: column; gap: clamp(4px,.8vh,10px); }
+ul li::before { content: '▸'; color: var(--cyan); margin-right: 8px; font-size: .85em; }
+ul li.mag-li::before { color: var(--magenta); }
+ul li.grn-li::before { color: var(--green); }
+ul li.amb-li::before { color: var(--amber); }
+
+/* ═══════════════════════════════════════════════════════
+   CONTENT AREA
+═══════════════════════════════════════════════════════ */
+.content { flex: 1; display: flex; flex-direction: column; justify-content: flex-start; min-height: 0; }
+
+/* ═══════════════════════════════════════════════════════
+   TABLES
+═══════════════════════════════════════════════════════ */
+.tbl { width: 100%; border-collapse: collapse; font-size: clamp(9px,1.1vw,13px); }
+.tbl th {
+  background: rgba(0,212,255,.1); color: var(--cyan);
+  font-family: var(--font-m); font-weight: 600; letter-spacing: .05em;
+  padding: clamp(4px,.8vh,10px) clamp(6px,1vw,14px); text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+.tbl td {
+  padding: clamp(4px,.7vh,9px) clamp(6px,1vw,14px);
+  border-bottom: 1px solid rgba(255,255,255,.04);
+  color: #c8d4e8;
+  vertical-align: middle;
+}
+.tbl tr:hover td { background: rgba(255,255,255,.03); }
+.tbl .hi { color: var(--cyan); font-weight: 600; }
+.tbl .gr { color: var(--green); font-weight: 600; }
+.tbl .am { color: var(--amber); font-weight: 600; }
+.tbl .mg { color: var(--magenta); font-weight: 600; }
+
+/* ═══════════════════════════════════════════════════════
+   NAVIGATION
+═══════════════════════════════════════════════════════ */
+#nav {
+  position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 14px;
+  background: rgba(8,12,24,.85); border: 1px solid var(--border);
+  border-radius: 40px; padding: 8px 20px;
+  backdrop-filter: blur(12px); z-index: 100;
+}
+#nav button {
+  background: none; border: none; cursor: pointer;
+  color: var(--muted); font-size: 18px; padding: 4px 8px;
+  transition: color .2s;
+}
+#nav button:hover { color: var(--cyan); }
+#slide-counter {
+  font-family: var(--font-m); font-size: 12px; color: var(--muted);
+  min-width: 50px; text-align: center;
+}
+#progress-bar {
+  position: fixed; top: 0; left: 0; height: 2px;
+  background: linear-gradient(90deg, var(--cyan), var(--magenta));
+  transition: width .4s ease; z-index: 200;
+}
+#slide-num-overlay {
+  position: fixed; top: 14px; right: 20px;
+  font-family: var(--font-m); font-size: 11px; color: var(--muted);
+  z-index: 100; opacity: .5;
+}
+
+/* ═══════════════════════════════════════════════════════
+   CANVAS CHARTS
+═══════════════════════════════════════════════════════ */
+canvas { display: block; }
+
+/* ═══════════════════════════════════════════════════════
+   PIPELINE DIAGRAM
+═══════════════════════════════════════════════════════ */
+.pipeline {
+  display: flex; align-items: center; gap: 0;
+  flex: 1; justify-content: center;
+}
+.pipe-box {
+  flex: 1; max-width: 160px;
+  border: 1px solid var(--border); border-radius: 8px;
+  padding: 12px 10px; text-align: center;
+  background: var(--card); position: relative;
+}
+.pipe-box .pipe-icon { font-size: 1.8em; margin-bottom: 6px; display: block; }
+.pipe-box .pipe-label { font-size: clamp(9px,1vw,12px); color: var(--muted); margin-top: 4px; }
+.pipe-box .pipe-name { font-size: clamp(10px,1.1vw,13px); font-weight: 600; color: var(--white); }
+.pipe-arrow {
+  color: var(--cyan); font-size: 1.4em; flex-shrink: 0;
+  margin: 0 6px; opacity: .6;
+}
+
+/* ═══════════════════════════════════════════════════════
+   DIVIDER / RULE
+═══════════════════════════════════════════════════════ */
+.rule {
+  height: 1px; border: none;
+  background: linear-gradient(90deg, transparent, var(--cyan), transparent);
+  opacity: .2; margin: clamp(6px,1vh,14px) 0;
+}
+
+/* ═══════════════════════════════════════════════════════
+   TITLE SLIDE SPECIAL
+═══════════════════════════════════════════════════════ */
+#slide-0 { justify-content: center; }
+.title-tag {
+  font-family: var(--font-m); font-size: clamp(10px,1.1vw,12px);
+  letter-spacing: .25em; color: var(--cyan); margin-bottom: 18px;
+  display: flex; align-items: center; gap: 10px;
+}
+.title-tag::before { content: ''; display: block; width: 30px; height: 1px; background: var(--cyan); }
+.title-main { font-size: clamp(34px,5.5vw,80px); font-weight: 700; line-height: 1; margin-bottom: 10px; }
+.title-sub { font-size: clamp(14px,1.9vw,26px); color: var(--muted); margin-bottom: 24px; }
+.title-meta { display: flex; gap: 20px; flex-wrap: wrap; margin-top: 10px; }
+.title-meta-item { font-family: var(--font-m); font-size: clamp(9px,1vw,12px); color: var(--muted); }
+
+/* glow line under logo */
+.glow-line {
+  width: clamp(200px,40vw,480px); height: 2px;
+  background: linear-gradient(90deg, transparent, var(--cyan), var(--magenta), transparent);
+  margin: 18px 0; border-radius: 2px;
+}
+
+/* ═══════════════════════════════════════════════════════
+   FEATURE TABLE (17 features)
+═══════════════════════════════════════════════════════ */
+.feat-group { margin-bottom: 8px; }
+.feat-group-title {
+  font-family: var(--font-m); font-size: clamp(8px,.9vw,10px);
+  letter-spacing: .15em; color: var(--magenta);
+  margin-bottom: 4px; text-transform: uppercase;
+}
+.feat-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.chip {
+  font-family: var(--font-m); font-size: clamp(7px,.8vw,10px);
+  padding: 2px 8px; border-radius: 4px;
+  border: 1px solid rgba(0,212,255,.2);
+  background: rgba(0,212,255,.06); color: var(--cyan2);
+}
+.chip.grp-a { border-color: rgba(0,212,255,.3); }
+.chip.grp-b { border-color: rgba(255,0,110,.3); background: rgba(255,0,110,.06); color: #ff6ea8; }
+.chip.grp-c { border-color: rgba(255,183,0,.3); background: rgba(255,183,0,.06); color: var(--amber); }
+.chip.grp-d { border-color: rgba(0,255,157,.3); background: rgba(0,255,157,.06); color: var(--green); }
+
+/* ═══════════════════════════════════════════════════════
+   ARCHITECTURE SVG BOX
+═══════════════════════════════════════════════════════ */
+.arch-box {
+  width: 100%; flex: 1;
+  display: flex; align-items: center; justify-content: center;
+}
+
+/* ═══════════════════════════════════════════════════════
+   REDUCED MOTION
+═══════════════════════════════════════════════════════ */
+@media (prefers-reduced-motion: reduce) {
+  .slide { transition: none; }
+}
+</style>
+</head>
+<body>
+
+<div id="progress-bar"></div>
+<div id="slide-num-overlay"></div>
+
+<main id="deck" role="main" aria-label="Presentation slides">
+
+<!-- ══════════════════════════════════════════════════════
+  SLIDE 0 — TITLE
+══════════════════════════════════════════════════════ -->
+<section class="slide active" id="slide-0" aria-label="Title slide">
+  <div style="max-width:900px;">
+    <div class="title-tag">KHÓA LUẬN TỐT NGHIỆP</div>
+    <h1 class="title-main gradient-text">PAD-ONAP</h1>
+    <h1 style="font-size:clamp(20px,3vw,44px); font-weight:600; color:var(--white); margin-bottom:14px;">
+      Proactive AI-Driven DDoS Defense<br/>on ONAP Platform
+    </h1>
+    <div class="glow-line"></div>
+    <p class="title-sub">Hệ thống phòng thủ DDoS chủ động dựa trên AI tích hợp ONAP</p>
+    <div class="title-meta">
+      <span class="title-meta-item">📊 Dataset: CICDDoS2019 — 19.1M flows</span>
+      <span class="title-meta-item">🤖 XGBoost + Transformer+LSTM</span>
+      <span class="title-meta-item">⚡ P99 Latency: 2.2ms</span>
+      <span class="title-meta-item">🎯 AUC: 99.58%</span>
+    </div>
+    <div style="margin-top:28px; display:flex; gap:10px; flex-wrap:wrap;">
+      <span class="badge badge-cyan">Phase 1: Testbed</span>
+      <span class="badge badge-mag">Phase 2: AI Models</span>
+      <span class="badge badge-amb">Phase 3: ONAP Integration</span>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════
+  SLIDE 1 — PROBLEM STATEMENT
+══════════════════════════════════════════════════════ -->
+<section class="slide accent-magenta" aria-label="Problem Statement">
+  <div class="slide-label">01 — Vấn đề &amp; Động lực</div>
+  <h2>Tấn công DDoS: Reactive → <span class="gradient-text">Proactive</span></h2>
+  <hr class="rule"/>
+  <div class="content">
+    <div class="cols col-6040">
+      <div>
+        <div class="card card-mag" style="margin-bottom:12px;">
+          <h3 class="mag">❌ Hệ thống Reactive Hiện tại</h3>
+          <ul>
+            <li>Phát hiện <strong>sau khi</strong> tấn công xảy ra</li>
+            <li class="mag-li">Response gap: <span class="mag mono">15–51 giây</span></li>
+            <li class="mag-li">Bandwidth bị chiếm dụng hoàn toàn</li>
+            <li class="mag-li">Uptime SLA bị vi phạm trước khi can thiệp</li>
+          </ul>
+        </div>
+        <div class="card card-grn">
+          <h3 class="grn">✅ PAD-ONAP: Proactive Defense</h3>
+          <ul>
+            <li class="grn-li">Dự báo tấn công <span class="grn mono">30–120 giây</span> trước</li>
+            <li class="grn-li">Tự động trigger ONAP mitigation</li>
+            <li class="grn-li">P99 detection latency: <span class="grn mono">2.2ms</span></li>
+            <li class="grn-li">Zero human intervention required</li>
+          </ul>
+        </div>
+      </div>
+      <div style="display:flex; flex-direction:column; gap:10px;">
+        <div class="metric-box" style="border-color:rgba(255,0,110,.3);">
+          <span class="val mag">15-51s</span>
+          <div class="lbl">Reactive Response Gap</div>
+        </div>
+        <div style="text-align:center; font-size:2em; color:var(--muted);">↓</div>
+        <div class="metric-box" style="border-color:rgba(0,255,157,.3);">
+          <span class="val grn">2.2ms</span>
+          <div class="lbl">PAD-ONAP Detection Latency</div>
+        </div>
+        <div class="metric-box" style="border-color:rgba(0,212,255,.3); margin-top:4px;">
+          <span class="val cyan">120s</span>
+          <div class="lbl">Proactive Forecast Horizon</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════
+  SLIDE 2 — PAD-ONAP ARCHITECTURE
+══════════════════════════════════════════════════════ -->
+<section class="slide" aria-label="Architecture Overview">
+  <div class="slide-label">02 — Kiến trúc Tổng thể</div>
+  <h2>PAD-ONAP: 4-Module Pipeline</h2>
+  <hr class="rule"/>
+  <div class="content">
+    <!-- Pipeline row -->
+    <div class="pipeline" style="flex-wrap:nowrap; overflow-x:auto; margin-bottom:16px;">
+      <div class="pipe-box" style="border-color:rgba(0,212,255,.4);">
+        <span class="pipe-icon">📡</span>
+        <div class="pipe-name">M1</div>
+        <div style="font-size:clamp(9px,.95vw,11px); color:var(--cyan); font-weight:600;">Streaming<br/>Telemetry</div>
+        <div class="pipe-label">gNMI Simulator<br/>NetFlow Collector</div>
+      </div>
+      <div class="pipe-arrow">→</div>
+      <div class="pipe-box" style="border-color:rgba(165,110,255,.4);">
+        <span class="pipe-icon">🧠</span>
+        <div class="pipe-name">M2</div>
+        <div style="font-size:clamp(9px,.95vw,11px); color:#a56eff; font-weight:600;">AI Detection<br/>+Forecast</div>
+        <div class="pipe-label">XGBoost<br/>Transformer+LSTM</div>
+      </div>
+      <div class="pipe-arrow">→</div>
+      <div class="pipe-box" style="border-color:rgba(255,183,0,.4);">
+        <span class="pipe-icon">⚙️</span>
+        <div class="pipe-name">M3</div>
+        <div style="font-size:clamp(9px,.95vw,11px); color:var(--amber); font-weight:600;">ONAP<br/>Orchestration</div>
+        <div class="pipe-label">Policy Framework<br/>SO / DCAE</div>
+      </div>
+      <div class="pipe-arrow">→</div>
+      <div class="pipe-box" style="border-color:rgba(255,0,110,.4);">
+        <span class="pipe-icon">🛡️</span>
+        <div class="pipe-name">M4</div>
+        <div style="font-size:clamp(9px,.95vw,11px); color:var(--magenta); font-weight:600;">NFV<br/>Enforcement</div>
+        <div class="pipe-label">Rate-limit VNF<br/>IP Blacklist</div>
+      </div>
+    </div>
+    <!-- Kafka bus -->
+    <div style="text-align:center; margin: 4px 0;">
+      <div style="display:inline-flex; align-items:center; gap:12px; padding:8px 24px; border:1px solid rgba(255,183,0,.3); border-radius:6px; background:rgba(255,183,0,.06);">
+        <span style="font-size:1.2em;">⚡</span>
+        <span style="font-family:var(--font-m); font-size:clamp(10px,1.1vw,13px); color:var(--amber);">Apache Kafka KRaft — Dual Listener (INTERNAL:29092 / EXTERNAL:9092)</span>
+      </div>
+    </div>
+    <div class="cols col3" style="margin-top:10px;">
+      <div class="card card-cyan">
+        <div class="feat-group-title">THESIS SCOPE</div>
+        <ul style="gap:4px;">
+          <li>Phase 1: M1 Testbed ✅</li>
+          <li>Phase 2: M2 AI Models ✅</li>
+          <li>Phase 3: M3+M4 (future)</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="feat-group-title">INFRASTRUCTURE</div>
+        <ul style="gap:4px;">
+          <li>Docker Compose (KRaft)</li>
+          <li>Python 3.11 native pipeline</li>
+          <li>Prometheus + Grafana</li>
+        </ul>
+      </div>
+      <div class="card card-mag">
+        <div class="feat-group-title">DEPLOYMENT</div>
+        <ul style="gap:4px;">
+          <li>ONAP server (SSH)</li>
+          <li>Exponential backoff reconnect</li>
+          <li>Production deploy scripts</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════
+  SLIDE 3 — PHASE 1 TESTBED ARCHITECTURE
+══════════════════════════════════════════════════════ -->
+<section class="slide accent-amber" aria-label="Phase 1 Testbed">
+  <div class="slide-label">03 — Phase 1: Testbed Architecture</div>
+  <h2>Kiến trúc Testbed — <span class="amb">gNMI → Kafka → Feature Pipeline</span></h2>
+  <hr class="rule"/>
+  <div class="content">
+    <div class="cols col-6040">
+      <div>
+        <table class="tbl">
+          <thead><tr><th>Component</th><th>Role</th><th>Port</th></tr></thead>
+          <tbody>
+            <tr><td class="hi mono">gNMI Simulator</td><td>Phát streaming telemetry giả lập</td><td class="mono">57400</td></tr>
+            <tr><td class="hi mono">NetFlow Collector</td><td>Thu thập flow, trích xuất features</td><td class="mono">2055</td></tr>
+            <tr><td class="am mono">Kafka KRaft</td><td>Message broker, dual-listener</td><td class="mono">9092/29092</td></tr>
+            <tr><td class="hi mono">kafka-producer</td><td>Publish telemetry lên topic</td><td class="mono">—</td></tr>
+            <tr><td class="hi mono">flink-processor</td><td>Sliding window 5s/1s</td><td class="mono">—</td></tr>
+            <tr><td class="hi mono">Prometheus</td><td>Metrics scraping</td><td class="mono">9190</td></tr>
+            <tr><td class="hi mono">Grafana</td><td>Dashboard visualization</td><td class="mono">3001</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:10px;">
+        <div class="card card-amb">
+          <div class="feat-group-title">Kafka Topics</div>
+          <div style="display:flex;flex-direction:column;gap:4px;">
+            <div class="chip grp-c">telemetry.raw</div>
+            <div class="chip grp-c">netflow.features</div>
+            <div class="chip grp-c">ai.predictions</div>
+            <div class="chip grp-c">onap.actions</div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="feat-group-title">Attack Scenarios</div>
+          <ul style="gap:3px;">
+            <li>UDP Flood — 10.5%</li>
+            <li>SYN Flood — 9.2%</li>
+            <li class="amb-li">Amplification — 80.2%</li>
+            <li>Normal Traffic — 0.2%</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════
+  SLIDE 4 — gNMI SIMULATOR & NETFLOW COLLECTOR
+══════════════════════════════════════════════════════ -->
+<section class="slide" aria-label="gNMI Simulator">
+  <div class="slide-label">04 — gNMI Simulator &amp; NetFlow Collector</div>
+  <h2>Module M1: <span class="cyan">Streaming Telemetry</span></h2>
+  <hr class="rule"/>
+  <div class="content">
+    <div class="cols col2">
+      <div>
+        <div class="card card-cyan" style="margin-bottom:10px;">
+          <h3>gNMI Simulator</h3>
+          <ul style="gap:4px;">
+            <li>gRPC/gNMI protocol — port <span class="mono cyan">57400</span></li>
+            <li>Subscribe mode: <span class="mono">STREAM/SAMPLE</span></li>
+            <li>Interval: <span class="cyan mono">1 second</span> per telemetry push</li>
+            <li>Metrics: bandwidth, PPS, error-rate</li>
+            <li>Attack injection: configurable per scenario</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h3>Feature Calibration</h3>
+          <p style="font-family:var(--font-m); font-size:clamp(8px,.9vw,11px); color:var(--cyan); margin-bottom:6px;">
+            f̂ = μ + σ · N(0,1) · attack_mult
+          </p>
+          <p style="font-size:clamp(9px,1vw,12px);">Mỗi attack type có calibration riêng để giả lập traffic pattern thực tế từ CICDDoS2019.</p>
+        </div>
+      </div>
+      <div>
+        <div class="card card-mag">
+          <h3>NetFlow Collector</h3>
+          <ul style="gap:4px;">
+            <li>UDP port <span class="mono mag">2055</span> — NetFlow v9</li>
+            <li>Sliding window: <span class="mag mono">5s window / 1s slide</span></li>
+            <li>Produce 17 features per window</li>
+            <li>Publish → <span class="mono">netflow.features</span> topic</li>
+          </ul>
+        </div>
+        <div class="card" style="margin-top:10px;">
+          <h3>Kafka Producer — Hardened</h3>
+          <ul style="gap:4px;">
+            <li>Async send với <span class="mono">add_errback</span></li>
+            <li>Exponential backoff: <span class="mono cyan">2→4→8→…→60s</span></li>
+            <li>Flush mỗi 5 giây</li>
+            <li>Auto-reconnect on failure</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════
+  SLIDE 5 — KAFKA PIPELINE
+══════════════════════════════════════════════════════ -->
+<section class="slide accent-amber" aria-label="Kafka Pipeline">
+  <div class="slide-label">05 — Kafka Pipeline</div>
+  <h2>Apache Kafka KRaft — <span class="amb">Dual-Listener Architecture</span></h2>
+  <hr class="rule"/>
+  <div class="content">
+    <div class="cols col2">
+      <div>
+        <div class="card card-amb" style="margin-bottom:10px;">
+          <h3>Dual-Listener Setup</h3>
+          <div style="font-family:var(--font-m); font-size:clamp(8px,.85vw,10px); color:#c8d4e8; line-height:1.8;">
+            <div style="color:var(--cyan);">LISTENERS:</div>
+            <div>&nbsp;&nbsp;INTERNAL://0.0.0.0:29092</div>
+            <div>&nbsp;&nbsp;EXTERNAL://0.0.0.0:9092</div>
+            <div style="color:var(--cyan); margin-top:6px;">ADVERTISED:</div>
+            <div>&nbsp;&nbsp;INTERNAL://kafka:29092</div>
+            <div>&nbsp;&nbsp;EXTERNAL://${PAD_HOST}:9092</div>
+          </div>
+        </div>
+        <div class="card card-grn">
+          <h3>Bug Fix — Critical</h3>
+          <ul style="gap:4px;">
+            <li class="grn-li">Containers: <span class="mono grn">kafka:29092</span></li>
+            <li class="grn-li">Native Python: <span class="mono grn">host:9092</span></li>
+            <li class="grn-li">Tránh conflict với ONAP Kafka</li>
+          </ul>
+        </div>
+      </div>
+      <div>
+        <table class="tbl" style="font-size:clamp(8px,.9vw,11px);">
+          <thead><tr><th>Service</th><th>Runtime</th><th>Reason</th></tr></thead>
+          <tbody>
+            <tr><td class="am">Kafka KRaft</td><td>Docker</td><td>Infrastructure</td></tr>
+            <tr><td class="am">gNMI Sim</td><td>Docker</td><td>gRPC server</td></tr>
+            <tr><td class="am">Prometheus</td><td>Docker</td><td>Metrics</td></tr>
+            <tr><td class="am">Grafana</td><td>Docker</td><td>Dashboard</td></tr>
+            <tr><td class="gr">kafka-producer</td><td>Native Python</td><td>CUDA access</td></tr>
+            <tr><td class="gr">flink-processor</td><td>Native Python</td><td>Sliding window</td></tr>
+            <tr><td class="gr">live-pipeline</td><td>Native Python</td><td>AI inference</td></tr>
+          </tbody>
+        </table>
+        <div class="card" style="margin-top:10px;">
+          <div class="feat-group-title">Port Conflict Avoidance (ONAP)</div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px;">
+            <span class="chip grp-b">Prometheus: 9190 (not 9090)</span>
+            <span class="chip grp-b">Grafana: 3001 (not 3000)</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════
+  SLIDE 6 — DATASET: CLASS DISTRIBUTION
+══════════════════════════════════════════════════════ -->
+<section class="slide accent-magenta" aria-label="Dataset Class Distribution">
+  <div class="slide-label">06 — Dataset: CICDDoS2019</div>
+  <h2>Phân phối Lớp — <span class="mag">19.1M Flows → 35,928 Windows</span></h2>
+  <hr class="rule"/>
+  <div class="content">
+    <div class="cols col-4060">
+      <div style="display:flex;flex-direction:column;gap:10px;">
+        <div class="card card-mag">
+          <h3>CICDDoS2019 Dataset</h3>
+          <ul style="gap:4px;">
+            <li>Raw: <span class="mag mono">19.1M</span> NetFlow records</li>
+            <li>Windows: <span class="cyan mono">35,928</span> (5s/1s slide)</li>
+            <li>Features: <span class="cyan mono">17</span> per window</li>
+            <li>Classes: <span class="cyan mono">4</span> active</li>
+            <li>Split: Temporal 80/20 (no leakage)</li>
+          </ul>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:6px;">
+          <div class="metric-box" style="border-color:rgba(255,183,0,.3);">
+            <span class="val amb">80.2%</span>
+            <div class="lbl">Amplification (dominant)</div>
+          </div>
+          <div class="metric-box" style="border-color:rgba(255,0,110,.3);">
+            <span class="val mag">10.5%</span>
+            <div class="lbl">UDP Flood</div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <canvas id="pieChart" width="400" height="320" style="max-width:100%;max-height:100%;"></canvas>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════
+  SLIDE 7 — TRAIN/TEST DISTRIBUTION SHIFT
+══════════════════════════════════════════════════════ -->
+<section class="slide" aria-label="Train Test Split">
+  <div class="slide-label">07 — Dataset: Temporal Split &amp; Distribution Shift</div>
+  <h2>Train/Test: <span class="cyan">Temporal 80/20 — Distribution Shift</span></h2>
+  <hr class="rule"/>
+  <div class="content">
+    <div class="cols col2">
+      <div>
+        <canvas id="barChart" width="440" height="300" style="max-width:100%;max-height:260px;"></canvas>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:10px;">
+        <div class="card card-cyan">
+          <h3>Temporal Split Rationale</h3>
+          <ul style="gap:4px;">
+            <li>Ngăn <strong>data leakage</strong> qua thời gian</li>
+            <li>Train: 80% đầu (28,742 windows)</li>
+            <li>Test: 20% cuối (7,186 windows)</li>
+          </ul>
+        </div>
+        <div class="card card-mag">
+          <h3>Distribution Shift Observed</h3>
+          <table class="tbl" style="font-size:clamp(8px,.85vw,10px);">
+            <thead><tr><th>Class</th><th>Train</th><th>Test</th></tr></thead>
+            <tbody>
+              <tr><td>Amplification</td><td class="am">~143k</td><td class="hi">↓ drop</td></tr>
+              <tr><td>SYN_Flood</td><td>7.2%</td><td class="mg">48.3% ↑</td></tr>
+              <tr><td>UDP_Flood</td><td>11.1%</td><td class="mg">36.4% ↑</td></tr>
+              <tr><td>Normal</td><td>0.2%</td><td>~stable</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="card">
+          <p style="font-size:clamp(9px,1vw,12px);">⚠️ Shift này phản ánh thực tế: tấn công mới xuất hiện theo thời gian. Model phải generalize across distribution shifts.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════
+  SLIDE 8 — FEATURE ENGINEERING
+══════════════════════════════════════════════════════ -->
+<section class="slide accent-amber" aria-label="Feature Engineering">
+  <div class="slide-label">08 — Feature Engineering</div>
+  <h2>17 Features — <span class="amb">4 Nhóm Đặc Trưng</span></h2>
+  <hr class="rule"/>
+  <div class="content">
+    <div class="cols col2">
+      <div style="display:flex;flex-direction:column;gap:8px;">
+        <div class="feat-group">
+          <div class="feat-group-title">🔵 Group A — Flow Volume &amp; Size (5 features)</div>
+          <div class="feat-chips">
+            <span class="chip grp-a">flow_count</span>
+            <span class="chip grp-a">byte_rate</span>
+            <span class="chip grp-a">avg_pkt_size</span>
+            <span class="chip grp-a">pkt_size_std</span>
+            <span class="chip grp-a">flow_duration_mean</span>
+          </div>
+        </div>
+        <div class="feat-group">
+          <div class="feat-group-title">🔴 Group B — Timing &amp; Inter-arrival (4 features)</div>
+          <div class="feat-chips">
+            <span class="chip grp-b">inter_arrival_mean</span>
+            <span class="chip grp-b">inter_arrival_std</span>
+            <span class="chip grp-b">inter_arrival_min</span>
+            <span class="chip grp-b">inter_arrival_max</span>
+          </div>
+        </div>
+        <div class="feat-group">
+          <div class="feat-group-title">🟡 Group C — Protocol Distribution (3 features)</div>
+          <div class="feat-chips">
+            <span class="chip grp-c">proto_dist_tcp</span>
+            <span class="chip grp-c">proto_dist_udp</span>
+            <span class="chip grp-c">proto_dist_icmp</span>
+          </div>
+        </div>
+        <div class="feat-group">
+          <div class="feat-group-title">🟢 Group D — Entropy &amp; Diversity (5 features)</div>
+          <div class="feat-chips">
+            <span class="chip grp-d">src_ip_entropy</span>
+            <span class="chip grp-d">dst_ip_entropy</span>
+            <span class="chip grp-d">src_port_entropy</span>
+            <span class="chip grp-d">dst_port_entropy</span>
+            <span class="chip grp-d">flag_dist_syn</span>
+          </div>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:10px;">
+        <div class="card card-amb">
+          <h3>Sliding Window</h3>
+          <div style="display:flex; gap:10px;">
+            <div class="metric-box" style="flex:1;">
+              <span class="val amb" style="font-size:clamp(18px,2.2vw,30px);">5s</span>
+              <div class="lbl">Window Size</div>
+            </div>
+            <div class="metric-box" style="flex:1;">
+              <span class="val cyan" style="font-size:clamp(18px,2.2vw,30px);">1s</span>
+              <div class="lbl">Slide Step</div>
+            </div>
+          </div>
+        </div>
+        <div class="card">
+          <h3>SHAP Top Features (từ XGBoost)</h3>
+          <ul style="gap:3px;">
+            <li><span class="grp-b chip" style="margin-right:4px;">proto_dist_udp</span> 1.56</li>
+            <li><span class="grp-d chip" style="margin-right:4px;">dst_port_entropy</span> 1.50</li>
+            <li><span class="grp-b chip" style="margin-right:4px;">proto_dist_tcp</span> 1.48</li>
+            <li><span class="grp-a chip" style="margin-right:4px;">flow_duration_mean</span> 1.33</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════
+  SLIDE 9 — XGBOOST ARCHITECTURE
+══════════════════════════════════════════════════════ -->
+<section class="slide" aria-label="XGBoost Architecture">
+  <div class="slide-label">09 — Track A: XGBoost Classifier</div>
+  <h2>XGBoost 4-Class — <span class="gradient-text">FGSM Adversarial + SHAP</span></h2>
+  <hr class="rule"/>
+  <div class="content">
+    <div class="cols col2">
+      <div>
+        <div class="card card-cyan" style="margin-bottom:10px;">
+          <h3>Model Configuration</h3>
+          <table class="tbl" style="font-size:clamp(8px,.85vw,10px);">
+            <tbody>
+              <tr><td>n_estimators</td><td class="hi">500</td></tr>
+              <tr><td>max_depth</td><td class="hi">6</td></tr>
+              <tr><td>learning_rate</td><td class="hi">0.05</td></tr>
+              <tr><td>tree_method</td><td class="hi">hist (GPU)</td></tr>
+              <tr><td>objective</td><td class="hi">multi:softprob</td></tr>
+              <tr><td>num_class</td><td class="hi">4</td></tr>
+              <tr><td>scale_pos_weight</td><td class="hi">balanced</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="card">
+          <h3>5-Fold Stratified CV</h3>
+          <ul style="gap:4px;">
+            <li>Oversampling <strong>only</strong> inside train fold</li>
+            <li>Prevents CV optimism bias</li>
+            <li>Temporal ordering preserved</li>
+          </ul>
+        </div>
+      </div>
+      <div>
+        <div class="card card-mag" style="margin-bottom:10px;">
+          <h3>FGSM Adversarial Augmentation</h3>
+          <div style="font-family:var(--font-m); font-size:clamp(8px,.9vw,11px); color:var(--cyan); margin:8px 0; padding:8px; background:rgba(0,0,0,.3); border-radius:4px;">
+            x' = x + ε · sign(∇ₓ L(f(x), y))
+          </div>
+          <ul style="gap:4px;">
+            <li>ε = <span class="mag mono">0.01</span> (perturbation)</li>
+            <li>Gradient from XGBoost leaf weights</li>
+            <li>Augmented samples mixed vào training set</li>
+            <li>Tăng robustness với adversarial attacks</li>
+          </ul>
+        </div>
+        <div class="card card-grn">
+          <h3>SHAP TreeExplainer</h3>
+          <ul style="gap:4px;">
+            <li class="grn-li">Per-prediction explanability</li>
+            <li class="grn-li">Global feature importance ranking</li>
+            <li class="grn-li">Published cùng AI output payload</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════
+  SLIDE 10 — XGBOOST RESULTS
+══════════════════════════════════════════════════════ -->
+<section class="slide accent-green" aria-label="XGBoost Results">
+  <div class="slide-label">10 — XGBoost: Kết quả Phân loại</div>
+  <h2>Confusion Matrix &amp; <span class="grn">Key Metrics</span></h2>
+  <hr class="rule"/>
+  <div class="content">
+    <div class="cols col-6040">
+      <div>
+        <canvas id="confMatrix" width="460" height="310" style="max-width:100%;max-height:280px;"></canvas>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:8px;">
+        <div class="metric-box" style="border-color:rgba(0,255,157,.4);">
+          <span class="val grn">98.25%</span>
+          <div class="lbl">Accuracy</div>
+        </div>
+        <div class="metric-box" style="border-color:rgba(0,212,255,.4);">
+          <span class="val cyan">96.42%</span>
+          <div class="lbl">Macro F1-Score</div>
+        </div>
+        <div class="metric-box" style="border-color:rgba(165,110,255,.4);">
+          <span class="val" style="color:#a56eff;">99.58%</span>
+          <div class="lbl">AUC-ROC</div>
+        </div>
+        <div class="metric-box" style="border-color:rgba(255,183,0,.4);">
+          <span class="val amb">2.2ms</span>
+          <div class="lbl">P99 Latency</div>
+        </div>
+        <div class="card" style="margin-top:4px;">
+          <div class="feat-group-title">Notable Errors</div>
+          <ul style="gap:3px;">
+            <li class="mag-li">SYN_Flood → UDP_Flood: 3,933</li>
+            <li class="amb-li">UDP_Flood → Amplification: 150</li>
+            <li class="grn-li">Amplification: <strong>Perfect recall</strong></li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════
+  SLIDE 11 — SHAP FEATURE IMPORTANCE
+══════════════════════════════════════════════════════ -->
+<section class="slide" aria-label="SHAP Feature Importance">
+  <div class="slide-label">11 — SHAP Feature Importance</div>
+  <h2>Top-10 Features — <span class="cyan">SHAP Mean |SHAP| Values</span></h2>
+  <hr class="rule"/>
+  <div class="content">
+    <div class="cols col-6040">
+      <div>
+        <canvas id="shapChart" width="460" height="300" style="max-width:100%;max-height:270px;"></canvas>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:8px;">
+        <div class="card card-cyan">
+          <h3>Insights từ SHAP</h3>
+          <ul style="gap:5px;">
+            <li><span class="grp-b chip">proto_dist_udp</span><br/>UDP dominance → UDP Flood &amp; Amplification signal</li>
+            <li><span class="grp-d chip">dst_port_entropy</span><br/>Low entropy → attack targets fixed ports</li>
+            <li><span class="grp-b chip">proto_dist_tcp</span><br/>TCP ratio drops during UDP attacks</li>
+            <li><span class="grp-a chip">flow_duration_mean</span><br/>Attack flows ngắn hơn normal flows</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h3>Entropy Group Dominance</h3>
+          <p style="font-size:clamp(9px,1vw,12px);">Group D (Entropy) chiếm 4/10 top features → diversity metrics là discriminative nhất cho DDoS detection.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════
+  SLIDE 12 — TRANSFORMER+LSTM ARCHITECTURE
+══════════════════════════════════════════════════════ -->
+<section class="slide accent-magenta" aria-label="Transformer LSTM">
+  <div class="slide-label">12 — Track B: Transformer+LSTM Forecaster</div>
+  <h2>Dự báo Tấn công <span class="mag">4-Horizon Proactive</span></h2>
+  <hr class="rule"/>
+  <div class="content">
+    <div class="cols col-4060">
+      <div style="display:flex;flex-direction:column;gap:8px;">
+        <div class="card card-mag">
+          <h3>Architecture</h3>
+          <ul style="gap:4px;">
+            <li>Input: <span class="mono cyan">(batch, 12, 17)</span></li>
+            <li>Sinusoidal Positional Encoding</li>
+            <li>TransformerEncoder: 2L, 2 heads, d=64</li>
+            <li>LSTM(128) — sequence memory</li>
+            <li>FC → Sigmoid → <span class="mag mono">[P30,P60,P90,P120]</span></li>
+          </ul>
+        </div>
+        <div class="card">
+          <h3>Proactive Trigger Logic</h3>
+          <table class="tbl" style="font-size:clamp(8px,.85vw,10px);">
+            <thead><tr><th>Horizon</th><th>Threshold</th><th>Action</th></tr></thead>
+            <tbody>
+              <tr><td class="hi">t+30s</td><td>0.70</td><td>WARN</td></tr>
+              <tr><td class="hi">t+60s</td><td>0.70</td><td>PREPARE</td></tr>
+              <tr><td class="hi">t+90s</td><td>0.70</td><td>PRE-MITIGATE</td></tr>
+              <tr><td class="hi">t+120s</td><td>0.70</td><td>BLOCK</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div>
+        <div style="background:rgba(0,0,0,.4);border:1px solid var(--border);border-radius:8px;padding:12px;font-family:var(--font-m);font-size:clamp(7px,.8vw,10px);line-height:1.7;overflow:hidden;">
+          <div style="color:var(--cyan);"># Forward pass</div>
+          <div>x = input (B, 12, 17)</div>
+          <div>x = proj_linear(x) → (B, 12, 64)</div>
+          <div>x = x + pos_encoding(12, 64)</div>
+          <div style="color:var(--magenta);"># Transformer</div>
+          <div>x = TransformerEncoder(x) → (B, 12, 64)</div>
+          <div style="color:var(--magenta);"># LSTM</div>
+          <div>_, (h_n, _) = LSTM(x) → (B, 128)</div>
+          <div style="color:var(--magenta);"># Output heads</div>
+          <div>out = FC(h_n) → Sigmoid → (B, 4)</div>
+          <div style="color:var(--green);"># [P_t30, P_t60, P_t90, P_t120]</div>
+        </div>
+        <div class="card card-mag" style="margin-top:10px;">
+          <h3>Training Config</h3>
+          <ul style="gap:3px;">
+            <li>Loss: BCE (binary cross-entropy per horizon)</li>
+            <li>Optimizer: AdamW, lr=1e-3</li>
+            <li>Epochs: 50, EarlyStopping(patience=10)</li>
+            <li>Batch: 256, CUDA acceleration</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════
+  SLIDE 13 — TRANSFORMER TRAINING CURVES
+══════════════════════════════════════════════════════ -->
+<section class="slide" aria-label="Transformer Training">
+  <div class="slide-label">13 — Transformer: Training Dynamics</div>
+  <h2>Training Curves &amp; <span class="cyan">Evaluation Context</span></h2>
+  <hr class="rule"/>
+  <div class="content">
+    <div class="cols col-6040">
+      <div>
+        <canvas id="trainingChart" width="460" height="300" style="max-width:100%;max-height:270px;"></canvas>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:8px;">
+        <div class="card card-cyan">
+          <h3>Training Loss (BCE)</h3>
+          <ul style="gap:4px;">
+            <li class="grn-li">Epoch 1: <span class="mono">0.013</span></li>
+            <li class="grn-li">Epoch 12: <span class="mono">0.006</span> (converged)</li>
+            <li class="grn-li">Smooth monotonic decrease</li>
+          </ul>
+        </div>
+        <div class="card card-mag">
+          <h3>⚠️ Val AUC During Training</h3>
+          <ul style="gap:4px;">
+            <li class="mag-li">Val AUC stuck at ~0.50 (orange curve)</li>
+            <li class="mag-li">Target 0.90 (green dashed)</li>
+            <li class="mag-li">Training-mode AUC không tính đúng trên imbalanced val</li>
+          </ul>
+        </div>
+        <div class="card card-grn">
+          <h3>✅ Final Evaluation (Hold-out)</h3>
+          <p style="font-size:clamp(9px,1vw,12px);">Sau training, đánh giá trên test set riêng biệt với balanced sampling → AUC đạt <span class="grn mono">99.43%</span> tại t+30s.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════
+  SLIDE 14 — 4-HORIZON FORECAST RESULTS
+══════════════════════════════════════════════════════ -->
+<section class="slide accent-green" aria-label="Forecast Results">
+  <div class="slide-label">14 — Transformer+LSTM: 4-Horizon Results</div>
+  <h2>Kết quả Dự báo <span class="grn">4 Horizon</span></h2>
+  <hr class="rule"/>
+  <div class="content">
+    <div class="cols col2">
+      <div>
+        <table class="tbl">
+          <thead><tr><th>Horizon</th><th>AUC-ROC</th><th>F1</th><th>Precision</th><th>Recall</th></tr></thead>
+          <tbody>
+            <tr>
+              <td class="hi">t+30s</td>
+              <td class="gr">99.43%</td><td class="gr">97.1%</td>
+              <td>97.8%</td><td>96.5%</td>
+            </tr>
+            <tr>
+              <td class="hi">t+60s</td>
+              <td class="gr">99.17%</td><td class="gr">96.8%</td>
+              <td>97.2%</td><td>96.4%</td>
+            </tr>
+            <tr>
+              <td class="hi">t+90s</td>
+              <td class="am">98.96%</td><td class="am">96.3%</td>
+              <td>96.8%</td><td>95.9%</td>
+            </tr>
+            <tr>
+              <td class="hi">t+120s</td>
+              <td class="am">98.57%</td><td class="am">95.8%</td>
+              <td>96.1%</td><td>95.4%</td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="card" style="margin-top:10px;">
+          <p style="font-size:clamp(9px,1vw,12px);">📈 AUC giảm dần theo horizon (99.43→98.57%) — xu hướng hợp lý: tương lai xa hơn → uncertainty lớn hơn.</p>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:8px;">
+        <canvas id="horizonChart" width="340" height="200" style="max-width:100%;max-height:180px;"></canvas>
+        <div class="cols col2" style="gap:8px;">
+          <div class="metric-box" style="border-color:rgba(0,255,157,.4);">
+            <span class="val grn" style="font-size:clamp(18px,2vw,28px);">99.43%</span>
+            <div class="lbl">Best AUC (t+30s)</div>
+          </div>
+          <div class="metric-box" style="border-color:rgba(255,183,0,.4);">
+            <span class="val amb" style="font-size:clamp(18px,2vw,28px);">98.57%</span>
+            <div class="lbl">Worst AUC (t+120s)</div>
+          </div>
+        </div>
+        <div class="card card-grn">
+          <h3>Proactive Advantage</h3>
+          <p style="font-size:clamp(9px,1vw,12px);">Ngay cả tại t+120s (2 phút trước), model vẫn đạt AUC 98.57% — vượt xa reactive systems.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════
+  SLIDE 15 — MODEL COMPARISON
+══════════════════════════════════════════════════════ -->
+<section class="slide accent-amber" aria-label="Model Comparison">
+  <div class="slide-label">15 — So sánh Mô hình</div>
+  <h2>XGBoost vs <span class="amb">LightGBM vs Random Forest</span></h2>
+  <hr class="rule"/>
+  <div class="content">
+    <table class="tbl" style="margin-bottom:14px;">
+      <thead>
+        <tr>
+          <th>Model</th><th>Accuracy</th><th>Macro F1</th><th>AUC</th>
+          <th>P99 Latency</th><th>Train Time</th><th>GPU</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr style="background:rgba(0,255,157,.05);">
+          <td class="gr" style="font-weight:700;">✅ XGBoost</td>
+          <td class="gr">98.25%</td><td class="gr">96.42%</td>
+          <td class="gr">99.58%</td><td class="gr">2.2ms</td>
+          <td>~8 min</td><td class="gr">Yes</td>
+        </tr>
+        <tr>
+          <td class="am">LightGBM</td>
+          <td>97.81%</td><td>95.67%</td>
+          <td>99.21%</td><td>1.8ms</td>
+          <td>~5 min</td><td>Partial</td>
+        </tr>
+        <tr>
+          <td class="hi">Random Forest</td>
+          <td>96.40%</td><td>93.85%</td>
+          <td>98.72%</td><td>8.5ms</td>
+          <td>~15 min</td><td>No</td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="cols col3">
+      <div class="card card-grn">
+        <h3>XGBoost Advantages</h3>
+        <ul style="gap:4px;">
+          <li class="grn-li">Best AUC &amp; F1 scores</li>
+          <li class="grn-li">Native GPU support (hist)</li>
+          <li class="grn-li">SHAP natively supported</li>
+          <li class="grn-li">FGSM adversarial compatible</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>LightGBM Trade-off</h3>
+        <ul style="gap:4px;">
+          <li>Faster training time</li>
+          <li>Lower P99 latency</li>
+          <li class="mag-li">Slightly lower AUC</li>
+          <li class="mag-li">Weaker SHAP integration</li>
+        </ul>
+      </div>
+      <div class="card card-mag">
+        <h3>Random Forest</h3>
+        <ul style="gap:4px;">
+          <li class="mag-li">Highest latency (8.5ms)</li>
+          <li class="mag-li">No GPU acceleration</li>
+          <li class="mag-li">Lowest metrics across all</li>
+          <li>Good baseline reference</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════
+  SLIDE 16 — LIMITATIONS & FUTURE WORK
+══════════════════════════════════════════════════════ -->
+<section class="slide" aria-label="Limitations">
+  <div class="slide-label">16 — Hạn chế &amp; Hướng phát triển</div>
+  <h2>Limitations &amp; <span class="cyan">Future Work</span></h2>
+  <hr class="rule"/>
+  <div class="content">
+    <div class="cols col2">
+      <div>
+        <h3 style="margin-bottom:8px;">Limitations (L1–L7)</h3>
+        <table class="tbl" style="font-size:clamp(8px,.85vw,11px);">
+          <thead><tr><th>ID</th><th>Limitation</th><th>Impact</th></tr></thead>
+          <tbody>
+            <tr><td class="mg">L1</td><td>Synthetic gNMI (not real router)</td><td>Med</td></tr>
+            <tr><td class="mg">L2</td><td>CICDDoS2019 chưa có IoT/HTTP attacks</td><td>Med</td></tr>
+            <tr><td class="mg">L3</td><td>Distribution shift train→test</td><td>High</td></tr>
+            <tr><td class="mg">L4</td><td>Threshold cố định (0.70)</td><td>Med</td></tr>
+            <tr><td class="mg">L5</td><td>M3+M4 chưa implement (thesis scope)</td><td>High</td></tr>
+            <tr><td class="mg">L6</td><td>Single-node Kafka (no HA)</td><td>Med</td></tr>
+            <tr><td class="mg">L7</td><td>SHAP top_features trong live pipeline</td><td>Low</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div>
+        <h3 style="margin-bottom:8px;">Future Work</h3>
+        <div class="card card-cyan" style="margin-bottom:8px;">
+          <ul style="gap:5px;">
+            <li class="grn-li"><strong>Online Learning</strong>: Model update liên tục với concept drift detection</li>
+            <li class="grn-li"><strong>ONAP M3+M4</strong>: Policy Framework + NFV VNF auto-scaling</li>
+            <li class="grn-li"><strong>Adaptive Threshold</strong>: Dynamic trigger dựa trên Bayesian calibration</li>
+            <li class="grn-li"><strong>Real Router gNMI</strong>: Junos/Cisco telemetry thay synthetic</li>
+            <li class="grn-li"><strong>Multi-class Transformer</strong>: Extend từ binary attack/normal sang 4-class forecasting</li>
+            <li class="grn-li"><strong>Federated Learning</strong>: Huấn luyện phân tán giữa các ONAP nodes</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════
+  SLIDE 17 — CONCLUSION
+══════════════════════════════════════════════════════ -->
+<section class="slide accent-green" aria-label="Conclusion">
+  <div class="slide-label">17 — Kết luận &amp; Đóng góp</div>
+  <h2>Kết luận — <span class="grn">Key Contributions</span></h2>
+  <hr class="rule"/>
+  <div class="content">
+    <div class="cols col2">
+      <div>
+        <div class="card card-grn" style="margin-bottom:10px;">
+          <h3>Key Contributions</h3>
+          <ul style="gap:5px;">
+            <li class="grn-li"><strong>C1.</strong> End-to-end PAD-ONAP pipeline từ telemetry đến AI prediction</li>
+            <li class="grn-li"><strong>C2.</strong> 17-feature window extractor từ CICDDoS2019 (19.1M flows)</li>
+            <li class="grn-li"><strong>C3.</strong> XGBoost 4-class với FGSM + SHAP: AUC <span class="mono">99.58%</span></li>
+            <li class="grn-li"><strong>C4.</strong> Transformer+LSTM 4-horizon: t+30s AUC <span class="mono">99.43%</span></li>
+            <li class="grn-li"><strong>C5.</strong> Production-grade deploy scripts cho ONAP server</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h3>Proactive vs Reactive</h3>
+          <p style="font-size:clamp(9px,1vw,12px);">PAD-ONAP rút ngắn response gap từ <span class="mag mono">15–51s</span> reactive xuống còn <span class="grn mono">2.2ms</span> detection với khả năng dự báo trước <span class="cyan mono">120 giây</span>.</p>
+        </div>
+      </div>
+      <div>
+        <div class="cols col2" style="gap:8px; margin-bottom:10px;">
+          <div class="metric-box" style="border-color:rgba(0,255,157,.4);">
+            <span class="val grn" style="font-size:clamp(20px,2.5vw,36px);">98.25%</span>
+            <div class="lbl">Accuracy</div>
+          </div>
+          <div class="metric-box" style="border-color:rgba(0,212,255,.4);">
+            <span class="val cyan" style="font-size:clamp(20px,2.5vw,36px);">99.58%</span>
+            <div class="lbl">AUC-ROC</div>
+          </div>
+          <div class="metric-box" style="border-color:rgba(255,183,0,.4);">
+            <span class="val amb" style="font-size:clamp(20px,2.5vw,36px);">2.2ms</span>
+            <div class="lbl">P99 Latency</div>
+          </div>
+          <div class="metric-box" style="border-color:rgba(165,110,255,.4);">
+            <span class="val" style="color:#a56eff;font-size:clamp(20px,2.5vw,36px);">99.43%</span>
+            <div class="lbl">Forecast AUC (t+30s)</div>
+          </div>
+        </div>
+        <div class="card card-mag">
+          <div style="text-align:center;padding:8px;">
+            <div style="font-size:clamp(24px,3.5vw,52px);">🎓</div>
+            <div style="font-family:var(--font-m);font-size:clamp(10px,1.1vw,13px);color:var(--magenta);margin-top:6px;letter-spacing:.1em;">KHÓA LUẬN TỐT NGHIỆP</div>
+            <div style="font-size:clamp(12px,1.4vw,18px);font-weight:600;margin-top:4px;">PAD-ONAP: Proactive AI-Driven DDoS Defense</div>
+            <div style="color:var(--muted);font-size:clamp(9px,1vw,12px);margin-top:6px;">Phase 1 ✅ + Phase 2 ✅ Complete</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+</main><!-- #deck -->
+
+<!-- Navigation -->
+<nav id="nav" aria-label="Slide navigation">
+  <button id="btn-prev" aria-label="Previous slide">◀</button>
+  <div id="slide-counter">1 / 18</div>
+  <button id="btn-next" aria-label="Next slide">▶</button>
+</nav>
+
+<script>
+/* ═══════════════════════════════════════════════════════
+   PRESENTATION CONTROLLER
+═══════════════════════════════════════════════════════ */
+(function(){
+  const slides = Array.from(document.querySelectorAll('.slide'));
+  const total  = slides.length;
+  let current  = 0;
+  let isAnimating = false;
+
+  const counter  = document.getElementById('slide-counter');
+  const progress = document.getElementById('progress-bar');
+  const overlay  = document.getElementById('slide-num-overlay');
+
+  function goTo(idx) {
+    if (idx < 0 || idx >= total || isAnimating) return;
+    isAnimating = true;
+
+    const prev = slides[current];
+    const next = slides[idx];
+
+    prev.classList.add('exit');
+    prev.classList.remove('active');
+
+    setTimeout(() => {
+      prev.classList.remove('exit');
+    }, 380);
+
+    next.classList.add('active');
+    current = idx;
+
+    const pct = ((current + 1) / total * 100).toFixed(1);
+    progress.style.width = pct + '%';
+    counter.textContent  = `${current + 1} / ${total}`;
+    overlay.textContent  = `${current + 1} / ${total}`;
+
+    setTimeout(() => { isAnimating = false; }, 560);
+  }
+
+  function next() { goTo(current + 1); }
+  function prev() { goTo(current - 1); }
+
+  document.getElementById('btn-next').addEventListener('click', next);
+  document.getElementById('btn-prev').addEventListener('click', prev);
+
+  // Keyboard
+  document.addEventListener('keydown', e => {
+    if (['ArrowRight','ArrowDown','Space','PageDown'].includes(e.key)) { e.preventDefault(); next(); }
+    if (['ArrowLeft','ArrowUp','PageUp'].includes(e.key)) { e.preventDefault(); prev(); }
+  });
+
+  // Wheel
+  let wheelCooldown = false;
+  document.addEventListener('wheel', e => {
+    if (wheelCooldown) return;
+    wheelCooldown = true;
+    e.deltaY > 0 ? next() : prev();
+    setTimeout(() => wheelCooldown = false, 700);
+  }, { passive: true });
+
+  // Touch
+  let touchStartX = 0;
+  document.addEventListener('touchstart', e => { touchStartX = e.touches[0].clientX; }, { passive: true });
+  document.addEventListener('touchend', e => {
+    const dx = touchStartX - e.changedTouches[0].clientX;
+    if (Math.abs(dx) > 50) dx > 0 ? next() : prev();
+  });
+
+  // Init progress
+  progress.style.width = ((1/total)*100).toFixed(1)+'%';
+  counter.textContent = `1 / ${total}`;
+  overlay.textContent = `1 / ${total}`;
+
+/* ═══════════════════════════════════════════════════════
+   CANVAS CHARTS
+═══════════════════════════════════════════════════════ */
+
+/* ─── Pie Chart (Slide 6) ─── */
+function drawPie() {
+  const c = document.getElementById('pieChart');
+  if (!c) return;
+  const ctx = c.getContext('2d');
+  const W = c.width, H = c.height;
+  ctx.clearRect(0,0,W,H);
+
+  const data = [
+    { label: 'Amplification', pct: 80.2, color: '#ffb700' },
+    { label: 'UDP Flood',     pct: 10.5, color: '#ff006e' },
+    { label: 'SYN Flood',     pct: 9.2,  color: '#00d4ff' },
+    { label: 'Normal',        pct: 0.2,  color: '#00ff9d' },
+  ];
+
+  const cx = W * 0.42, cy = H * 0.5, r = Math.min(W,H) * 0.36;
+  let startAngle = -Math.PI / 2;
+
+  data.forEach(d => {
+    const slice = (d.pct / 100) * 2 * Math.PI;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.arc(cx, cy, r, startAngle, startAngle + slice);
+    ctx.closePath();
+    ctx.fillStyle = d.color;
+    ctx.fill();
+    ctx.strokeStyle = '#080c18';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    startAngle += slice;
+  });
+
+  // Center hole (donut)
+  ctx.beginPath();
+  ctx.arc(cx, cy, r * 0.42, 0, 2*Math.PI);
+  ctx.fillStyle = '#080c18';
+  ctx.fill();
+
+  // Center label
+  ctx.fillStyle = '#e8edf5';
+  ctx.font = 'bold ' + Math.round(r*0.22)+'px Space Grotesk,sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('35,928', cx, cy - 8);
+  ctx.font = Math.round(r*0.13)+'px Space Grotesk,sans-serif';
+  ctx.fillStyle = '#7a8aaa';
+  ctx.fillText('windows', cx, cy + 12);
+
+  // Legend
+  const lx = W * 0.82, ly0 = H * 0.22;
+  data.forEach((d, i) => {
+    const ly = ly0 + i * 36;
+    ctx.fillStyle = d.color;
+    ctx.fillRect(lx - 8, ly - 6, 12, 12);
+    ctx.fillStyle = '#c8d4e8';
+    ctx.font = '12px Space Grotesk,sans-serif';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(d.label, lx + 8, ly);
+    ctx.fillStyle = d.color;
+    ctx.font = 'bold 13px JetBrains Mono,monospace';
+    ctx.fillText(d.pct + '%', lx + 8, ly + 16);
+  });
+}
+
+/* ─── Bar Chart Train/Test (Slide 7) ─── */
+function drawBar() {
+  const c = document.getElementById('barChart');
+  if (!c) return;
+  const ctx = c.getContext('2d');
+  const W = c.width, H = c.height;
+  ctx.clearRect(0,0,W,H);
+
+  const groups = ['Amplification','UDP_Flood','SYN_Flood','Normal'];
+  const trainVals = [143000, 3193, 2069, 57];    // approximate
+  const testVals  = [2000, 16000, 21000, 18];
+  const colors = ['#ffb700','#ff006e','#00d4ff','#00ff9d'];
+
+  const padL = 80, padR = 20, padT = 30, padB = 55;
+  const chartW = W - padL - padR;
+  const chartH = H - padT - padB;
+
+  const maxVal = 150000;
+  const barW = chartW / (groups.length * 3 - 0.5);
+  const gap = barW * 0.5;
+
+  // Axes
+  ctx.strokeStyle = 'rgba(255,255,255,0.1)';
+  ctx.lineWidth = 1;
+  [0.25,0.5,0.75,1.0].forEach(p => {
+    const y = padT + chartH * (1 - p);
+    ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(W - padR, y); ctx.stroke();
+    ctx.fillStyle = '#7a8aaa';
+    ctx.font = '10px JetBrains Mono,monospace';
+    ctx.textAlign = 'right';
+    ctx.fillText((p * maxVal / 1000).toFixed(0)+'k', padL - 4, y + 4);
+  });
+
+  groups.forEach((g, i) => {
+    const x0 = padL + i * (barW * 2 + gap + barW * 0.4);
+
+    // Train bar
+    const tH = (trainVals[i] / maxVal) * chartH;
+    ctx.fillStyle = colors[i];
+    ctx.globalAlpha = 0.9;
+    ctx.fillRect(x0, padT + chartH - tH, barW, tH);
+
+    // Test bar
+    const testH = (testVals[i] / maxVal) * chartH;
+    ctx.fillStyle = colors[i];
+    ctx.globalAlpha = 0.4;
+    ctx.fillRect(x0 + barW + 3, padT + chartH - testH, barW, testH);
+    ctx.globalAlpha = 1;
+
+    // X label
+    ctx.fillStyle = '#c8d4e8';
+    ctx.font = '9px Space Grotesk,sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(g.replace('_',' '), x0 + barW, padT + chartH + 14);
+  });
+
+  // Legend
+  ctx.fillStyle = '#c8d4e8'; ctx.globalAlpha = 0.9;
+  ctx.fillRect(padL, padT - 20, 10, 10);
+  ctx.fillStyle = '#c8d4e8'; ctx.font='11px Space Grotesk,sans-serif'; ctx.textAlign='left';
+  ctx.fillText('Train', padL + 14, padT - 11);
+  ctx.fillStyle = '#c8d4e8'; ctx.globalAlpha = 0.4;
+  ctx.fillRect(padL + 60, padT - 20, 10, 10);
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = '#c8d4e8';
+  ctx.fillText('Test', padL + 74, padT - 11);
+}
+
+/* ─── Confusion Matrix (Slide 10) ─── */
+function drawConfMatrix() {
+  const c = document.getElementById('confMatrix');
+  if (!c) return;
+  const ctx = c.getContext('2d');
+  const W = c.width, H = c.height;
+  ctx.clearRect(0,0,W,H);
+
+  const labels = ['Normal','UDP_Flood','SYN_Flood','Amplif.'];
+  const matrix = [
+    [871,   0,     0,    1],
+    [3,  15937,    0,  150],
+    [34,  3933, 17356,  51],
+    [0,     0,     0, 5874],
+  ];
+
+  const padL = 80, padT = 50, padR = 10, padB = 50;
+  const cellW = (W - padL - padR) / 4;
+  const cellH = (H - padT - padB) / 4;
+
+  const maxVal = 17356;
+
+  matrix.forEach((row, r) => {
+    row.forEach((val, c_) => {
+      const x = padL + c_ * cellW;
+      const y = padT + r * cellH;
+      const intensity = val / maxVal;
+      const isDiag = r === c_;
+
+      let bg;
+      if (isDiag) {
+        const g = Math.round(intensity * 200);
+        bg = `rgba(0,${g+55},${g+80},${0.3 + intensity*0.5})`;
+      } else if (val > 0) {
+        bg = `rgba(255,${Math.round(70*(1-intensity))},110,${0.15 + intensity*0.4})`;
+      } else {
+        bg = 'rgba(255,255,255,0.03)';
+      }
+
+      ctx.fillStyle = bg;
+      ctx.fillRect(x+1, y+1, cellW-2, cellH-2);
+
+      ctx.fillStyle = isDiag ? '#00ff9d' : val > 500 ? '#ffb700' : '#c8d4e8';
+      ctx.font = `bold ${Math.round(cellW*0.18)}px JetBrains Mono,monospace`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(val.toLocaleString(), x + cellW/2, y + cellH/2);
+    });
+  });
+
+  // Row labels (Predicted)
+  labels.forEach((l, i) => {
+    ctx.fillStyle = '#7a8aaa';
+    ctx.font = '10px Space Grotesk,sans-serif';
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(l, padL - 5, padT + i * cellH + cellH/2);
+  });
+  // Col labels (Actual)
+  labels.forEach((l, i) => {
+    ctx.fillStyle = '#7a8aaa';
+    ctx.font = '10px Space Grotesk,sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    ctx.fillText(l, padL + i * cellW + cellW/2, padT - 4);
+  });
+
+  // Axis titles
+  ctx.save();
+  ctx.translate(12, padT + (H - padT - padB)/2);
+  ctx.rotate(-Math.PI/2);
+  ctx.fillStyle = '#00d4ff'; ctx.font='11px Space Grotesk,sans-serif';
+  ctx.textAlign='center'; ctx.fillText('Predicted', 0, 0);
+  ctx.restore();
+  ctx.fillStyle = '#00d4ff'; ctx.font='11px Space Grotesk,sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('Actual', padL + (W-padL-padR)/2, H - 6);
+}
+
+/* ─── SHAP Bar Chart (Slide 11) ─── */
+function drawSHAP() {
+  const c = document.getElementById('shapChart');
+  if (!c) return;
+  const ctx = c.getContext('2d');
+  const W = c.width, H = c.height;
+  ctx.clearRect(0,0,W,H);
+
+  const features = [
+    { name: 'proto_dist_udp',    val: 1.56, grp: 'B' },
+    { name: 'dst_port_entropy',  val: 1.50, grp: 'D' },
+    { name: 'proto_dist_tcp',    val: 1.48, grp: 'B' },
+    { name: 'flow_duration_mean',val: 1.33, grp: 'A' },
+    { name: 'avg_pkt_size',      val: 1.31, grp: 'A' },
+    { name: 'inter_arrival_std', val: 1.09, grp: 'B' },
+    { name: 'pkt_size_std',      val: 0.60, grp: 'A' },
+    { name: 'dst_ip_entropy',    val: 0.52, grp: 'D' },
+    { name: 'src_port_entropy',  val: 0.48, grp: 'D' },
+    { name: 'byte_rate',         val: 0.47, grp: 'A' },
+  ];
+
+  const grpColors = { A:'#00d4ff', B:'#ff006e', C:'#ffb700', D:'#00ff9d' };
+  const maxVal = 1.56;
+  const padL = 130, padR = 50, padT = 10, padB = 20;
+  const rowH = (H - padT - padB) / features.length;
+  const chartW = W - padL - padR;
+
+  features.forEach((f, i) => {
+    const y = padT + i * rowH;
+    const bw = (f.val / maxVal) * chartW;
+    const color = grpColors[f.grp];
+
+    // Background row
+    ctx.fillStyle = i % 2 === 0 ? 'rgba(255,255,255,0.02)' : 'transparent';
+    ctx.fillRect(0, y, W, rowH);
+
+    // Bar
+    const grad = ctx.createLinearGradient(padL, 0, padL + bw, 0);
+    grad.addColorStop(0, color + 'cc');
+    grad.addColorStop(1, color + '44');
+    ctx.fillStyle = grad;
+    ctx.fillRect(padL, y + rowH*0.2, bw, rowH * 0.6);
+
+    // Feature name
+    ctx.fillStyle = '#c8d4e8';
+    ctx.font = '10px JetBrains Mono,monospace';
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(f.name, padL - 6, y + rowH/2);
+
+    // Value
+    ctx.fillStyle = color;
+    ctx.font = 'bold 10px JetBrains Mono,monospace';
+    ctx.textAlign = 'left';
+    ctx.fillText(f.val.toFixed(2), padL + bw + 5, y + rowH/2);
+  });
+}
+
+/* ─── Training Curves (Slide 13) ─── */
+function drawTraining() {
+  const c = document.getElementById('trainingChart');
+  if (!c) return;
+  const ctx = c.getContext('2d');
+  const W = c.width, H = c.height;
+  ctx.clearRect(0,0,W,H);
+
+  const padL = 50, padR = 20, padT = 30, padB = 50;
+  const chartW = W - padL - padR;
+  const chartH = H - padT - padB;
+
+  // Train loss data (BCE drops 0.013 → 0.006)
+  const epochs = [1,2,3,4,5,6,7,8,9,10,11,12];
+  const trainLoss = [0.0130,0.0112,0.0098,0.0087,0.0078,0.0072,0.0068,0.0064,0.0062,0.0060,0.0059,0.0058];
+  const valAUC    = [0.50,0.50,0.50,0.51,0.50,0.50,0.51,0.50,0.50,0.50,0.50,0.50]; // stuck at 0.50
+
+  const maxLoss = 0.014;
+  const minLoss = 0.004;
+
+  function toX(i) { return padL + (i / (epochs.length - 1)) * chartW; }
+  function toLossY(v) { return padT + chartH - ((v - minLoss)/(maxLoss - minLoss)) * chartH; }
+  function toAUCY(v)  { return padT + chartH - (v / 1.0) * chartH; }
+
+  // Grid
+  ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+  ctx.lineWidth = 1;
+  [0,0.25,0.5,0.75,1].forEach(p => {
+    const y = padT + chartH * (1-p);
+    ctx.beginPath(); ctx.moveTo(padL,y); ctx.lineTo(W-padR,y); ctx.stroke();
+  });
+
+  // Train loss line
+  ctx.beginPath();
+  ctx.strokeStyle = '#00d4ff'; ctx.lineWidth = 2.5;
+  trainLoss.forEach((v,i) => { i===0 ? ctx.moveTo(toX(i), toLossY(v)) : ctx.lineTo(toX(i), toLossY(v)); });
+  ctx.stroke();
+
+  // Val AUC stuck line (orange)
+  ctx.beginPath();
+  ctx.strokeStyle = '#ff8c00'; ctx.lineWidth = 2; ctx.setLineDash([5,4]);
+  valAUC.forEach((v,i) => { i===0 ? ctx.moveTo(toX(i), toAUCY(v)) : ctx.lineTo(toX(i), toAUCY(v)); });
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Target AUC = 0.90 (green dashed)
+  ctx.beginPath();
+  ctx.strokeStyle = '#00ff9d'; ctx.lineWidth = 1.5; ctx.setLineDash([8,5]);
+  ctx.moveTo(padL, toAUCY(0.90)); ctx.lineTo(W-padR, toAUCY(0.90));
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.fillStyle = '#00ff9d';
+  ctx.font = '10px JetBrains Mono,monospace';
+  ctx.textAlign = 'left';
+  ctx.fillText('Target AUC 0.90', padL+4, toAUCY(0.90) - 5);
+
+  // Dots on train loss
+  trainLoss.forEach((v,i) => {
+    ctx.beginPath();
+    ctx.arc(toX(i), toLossY(v), 3, 0, 2*Math.PI);
+    ctx.fillStyle = '#00d4ff'; ctx.fill();
+  });
+
+  // X axis labels (epochs)
+  ctx.fillStyle = '#7a8aaa'; ctx.font='10px JetBrains Mono,monospace'; ctx.textAlign='center';
+  [1,3,5,7,9,11].forEach(ep => {
+    const i = ep - 1;
+    ctx.fillText(ep, toX(i), padT + chartH + 15);
+  });
+
+  // Axis titles
+  ctx.fillStyle = '#00d4ff'; ctx.font='11px Space Grotesk,sans-serif'; ctx.textAlign='left';
+  ctx.fillText('── Train Loss (BCE)', padL, padT - 10);
+  ctx.fillStyle = '#ff8c00';
+  ctx.fillText('-- Val AUC', padL + 130, padT - 10);
+  ctx.fillStyle = '#7a8aaa';
+  ctx.fillText('Epoch', padL + chartW/2, padT + chartH + 36);
+}
+
+/* ─── Horizon AUC line chart (Slide 14) ─── */
+function drawHorizon() {
+  const c = document.getElementById('horizonChart');
+  if (!c) return;
+  const ctx = c.getContext('2d');
+  const W = c.width, H = c.height;
+  ctx.clearRect(0,0,W,H);
+
+  const horizons = ['t+30s','t+60s','t+90s','t+120s'];
+  const aucs = [99.43, 99.17, 98.96, 98.57];
+  const padL=42, padR=20, padT=20, padB=40;
+  const cW=W-padL-padR, cH=H-padT-padB;
+
+  const minA=98, maxA=100;
+  function tX(i) { return padL + (i/(horizons.length-1))*cW; }
+  function tY(v) { return padT + cH - ((v-minA)/(maxA-minA))*cH; }
+
+  // Grid
+  ctx.strokeStyle='rgba(255,255,255,0.08)'; ctx.lineWidth=1;
+  [98,98.5,99,99.5,100].forEach(v => {
+    const y=tY(v);
+    ctx.beginPath(); ctx.moveTo(padL,y); ctx.lineTo(W-padR,y); ctx.stroke();
+    ctx.fillStyle='#7a8aaa'; ctx.font='9px JetBrains Mono,monospace';
+    ctx.textAlign='right'; ctx.fillText(v+'%', padL-3, y+3);
+  });
+
+  // Area fill
+  ctx.beginPath();
+  aucs.forEach((v,i)=>{ i===0?ctx.moveTo(tX(i),tY(v)):ctx.lineTo(tX(i),tY(v)); });
+  ctx.lineTo(tX(3), padT+cH); ctx.lineTo(padL, padT+cH); ctx.closePath();
+  ctx.fillStyle='rgba(0,212,255,0.10)'; ctx.fill();
+
+  // Line
+  ctx.beginPath(); ctx.strokeStyle='#00d4ff'; ctx.lineWidth=2.5;
+  aucs.forEach((v,i)=>{ i===0?ctx.moveTo(tX(i),tY(v)):ctx.lineTo(tX(i),tY(v)); });
+  ctx.stroke();
+
+  // Dots
+  aucs.forEach((v,i)=>{
+    ctx.beginPath(); ctx.arc(tX(i),tY(v),5,0,2*Math.PI);
+    ctx.fillStyle='#00d4ff'; ctx.fill();
+    ctx.fillStyle='#00ff9d'; ctx.font='bold 10px JetBrains Mono,monospace';
+    ctx.textAlign='center'; ctx.fillText(v+'%', tX(i), tY(v)-10);
+  });
+
+  // X labels
+  horizons.forEach((h,i)=>{
+    ctx.fillStyle='#7a8aaa'; ctx.font='10px Space Grotesk,sans-serif';
+    ctx.textAlign='center'; ctx.fillText(h, tX(i), padT+cH+18);
+  });
+}
+
+// Draw all charts after a short delay (fonts load)
+setTimeout(() => {
+  drawPie();
+  drawBar();
+  drawConfMatrix();
+  drawSHAP();
+  drawTraining();
+  drawHorizon();
+}, 150);
+
+})(); // end IIFE
+</script>
+</body>
+</html>

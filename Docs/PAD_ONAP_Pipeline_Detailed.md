@@ -63,36 +63,48 @@ PAD-ONAP (Proactive AI-Driven DDoS Defense using ONAP) is a **four-stage closed-
 
 ### 2.2 Component Topology
 
-```
-                         ┌─────────────────────────────────┐
-                         │       ONAP Platform              │
-                         │  ┌──────────┐  ┌─────────────┐  │
-         AI Scores ─────▶│  │  DCAE    │─▶│   Policy    │  │
-         (REST/Kafka)     │  │ (event   │  │  Framework  │  │
-                         │  │  ingest) │  │  (PAP/PDP)  │  │
-                         │  └──────────┘  └──────┬──────┘  │
-                         │                       │Policy   │
-                         │              ┌────────▼───────┐ │
-                         │              │    CLAMP       │ │
-                         │              │ (closed-loop   │ │
-                         │              │  templates)    │ │
-                         │              └────────┬───────┘ │
-                         │                       │VNF ops  │
-                         │              ┌────────▼───────┐ │
-                         │              │      SO        │ │
-                         │              │ (Service Orch) │ │
-                         └──────────────┴────────┬───────┘─┘
-                                                  │ REST/TOSCA
-                          ┌───────────────────────▼─────────┐
-                          │        VIM (OpenStack)           │
-                          │  VNF-Scrubber  VNF-RateLimit     │
-                          │  VNF-Analyzer  VNF-Classifier    │
-                          └─────────────────────────────────┘
-                                         │
-                          ┌──────────────▼──────────────────┐
-                          │   Data Plane (OVS / P4)          │
-                          │   SFC steering rules              │
-                          └─────────────────────────────────┘
+```mermaid
+graph TD
+    %% Define styles
+    classDef ai fill:#ffebee,stroke:#b71c1c,stroke-width:2px,color:#000
+    classDef onap fill:#e1f5fe,stroke:#01579b,stroke-width:2px,color:#000
+    classDef vim fill:#f3e5f5,stroke:#4a148c,stroke-width:2px,color:#000
+    classDef data fill:#e8f5e9,stroke:#1b5e20,stroke-width:2px,color:#000
+    classDef dmaap fill:#fff3e0,stroke:#e65100,stroke-dasharray: 5 5,color:#000
+    
+    %% M2 Layer
+    AI[M2: AI Inference Engine]:::ai
+    
+    %% ONAP Platform
+    subgraph ONAP_Platform [ONAP Platform (M3)]
+        DCAE[DCAE<br>Event Ingestion]:::onap
+        DMaaP((DMaaP<br>Event Bus)):::dmaap
+        Policy[Policy Framework<br>PAP/PDP]:::onap
+        CLAMP[CLAMP<br>Closed-Loop]:::onap
+        SO[Service Orchestrator<br>Workflow]:::onap
+    end
+    
+    %% VIM Layer
+    subgraph VIM_Layer [VIM Layer (M4)]
+        Scrubber[VNF-Scrubber]:::vim
+        RateLimit[VNF-RateLimit]:::vim
+    end
+    
+    %% Data Plane
+    subgraph Data_Plane [Data Plane (M4)]
+        OVS[OVS / P4 Data Plane<br>SFC Steering Rules]:::data
+    end
+    
+    %% Connections
+    AI -- AIOutputPayload --> DCAE
+    DCAE -- Publish VES Event --> DMaaP
+    DMaaP -- Subscribe VES --> Policy
+    Policy -- Tier Decision / Action --> CLAMP
+    CLAMP -- Trigger VNF Lifecycle --> SO
+    SO -- Instantiate/Terminate<br>REST/TOSCA --> Scrubber
+    SO -- Instantiate/Terminate --> RateLimit
+    Scrubber -. SFC Traffic Control .-> OVS
+    RateLimit -. SFC Traffic Control .-> OVS
 ```
 
 ---

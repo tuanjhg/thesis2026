@@ -206,6 +206,29 @@
   \begin{document}
 \fi
 
+\section{Phân loại và Đặc trưng luồng mạng của tấn công DDoS}
+\label{sec:ddos_taxonomy}
+
+Để xây dựng một hệ thống phát hiện và giảm thiểu hiệu quả, việc trích xuất các đặc trưng tĩnh và động của lưu lượng mạng (flow-based features) là cực kỳ quan trọng~\cite{mirkovic2004taxonomy}. Dựa trên các hành vi mạng ở tầng giao thức (Layer 3/4) và tầng ứng dụng (Layer 7), các cuộc tấn công DDoS hiện đại được phân loại thành 6 nhóm chính, mỗi nhóm thể hiện các dấu vết đặc trưng riêng biệt trên dữ liệu NetFlow/sFlow như được tóm tắt trong Bảng~\ref{tab:ddos_classification}.
+
+\begin{table}[H]
+\centering
+\caption{Phân loại các dạng tấn công DDoS dựa trên đặc trưng luồng mạng}
+\label{tab:ddos_classification}
+\begin{tabularx}{\textwidth}{|c|l|X|}
+\hline
+\textbf{ID} & \textbf{Loại tấn công} & \textbf{Đặc trưng lưu lượng (Flow-based Features)} \\ \hline
+1 & \textbf{UDP Flood} & Hoạt động dựa trên nguyên lý vắt kiệt băng thông. Dấu hiệu: tốc độ gói tin (\texttt{pkt\_rate}) rất cao, phân phối giao thức thiên về UDP (\texttt{proto\_dist\_udp} cao), và kích thước gói tin trung bình (\texttt{avg\_pkt\_size}) thấp. \\ \hline
+2 & \textbf{SYN Flood} & Lợi dụng cơ chế bắt tay 3 bước của TCP. Dấu hiệu: tỷ lệ cờ SYN (\texttt{syn\_ratio}) đột biến, tốc độ sinh luồng mới (\texttt{new\_flows\_rate}) rất cao nhưng thời gian tồn tại trung bình của mỗi luồng lại rất thấp (\texttt{flow\_duration\_mean}). \\ \hline
+3 & \textbf{HTTP Flood} & Tấn công bạo lực ở Layer 7. Dấu hiệu: \texttt{new\_flows\_rate} cực kỳ cao do botnet liên tục gửi yêu cầu GET/POST, chạy trên nền tảng TCP (\texttt{proto\_dist\_tcp} $\approx 1$), và \texttt{avg\_pkt\_size} nằm trong mức trung bình (500–1400B). \\ \hline
+4 & \textbf{ICMP Flood} & Dấu hiệu cơ bản là \texttt{proto\_dist\_icmp} $\approx 1$. Đặc biệt, độ hỗn loạn của IP nguồn (\texttt{src\_ip\_entropy}) sẽ ở mức rất cao nếu kẻ tấn công sử dụng kỹ thuật giả mạo IP (IP Spoofing) để né tránh các luật chặn thông thường. \\ \hline
+5 & \textbf{Amplification} & Kỹ thuật khuếch đại (DNS, NTP). Dấu hiệu: tốc độ dữ liệu (\texttt{byte\_rate}) cao bất thường, kích thước gói tin cực lớn (\texttt{large avg\_pkt\_size}), trong khi tốc độ tạo gói tin (\texttt{pkt\_rate}) lại tương đối thấp so với lưu lượng. \\ \hline
+6 & \textbf{Slow-rate} & Tấn công tàng hình Layer 7 (như Slowloris). Dấu hiệu đối lập hoàn toàn với các dạng bạo lực: thời gian luồng (\texttt{flow\_duration\_mean}) kéo dài tối đa, trong khi \texttt{byte\_rate} và \texttt{pkt\_rate} cực thấp, \texttt{proto\_dist\_tcp} $\approx 1$. \\ \hline
+\end{tabularx}
+\end{table}
+
+Sự đa dạng về đặc trưng này—từ các cuộc tấn công bạo lực tiêu tốn băng thông (Volumetric) cho đến các cuộc tấn công tàng hình tốc độ thấp (Slow-rate)—đặt ra thách thức lớn cho các hệ thống phòng thủ dựa trên ngưỡng (threshold-based) truyền thống, đòi hỏi sự tham gia của các thuật toán Học máy và khả năng điều phối mạng tự động.
+
 \section{Research Gap}
 \label{sec:research_gap}
 
@@ -226,7 +249,7 @@ Thứ nhất, cơ chế phát hiện còn mang tính phản ứng: phần lớn 
 
 Thứ hai, nhiều giải pháp học máy chưa được tích hợp chặt với lớp điều phối mạng chuẩn công nghiệp. Điều này tạo khoảng cách giữa kết quả mô hình và hành động thực thi trong hạ tầng MANO/ONAP~\cite{etsi_nfv_arch,onap_arch}.
 
-Thứ ba, bài toán phát hiện trong thực tế phức tạp hơn do tấn công đa vectơ, tấn công tốc độ thấp và đặc trưng lưu lượng biến thiên theo thời gian. Các mô hình đơn lẻ thường khó đồng thời đạt độ chính xác cao, độ trễ thấp và tính ổn định khi dữ liệu mất cân bằng~\cite{chen2016xgboost,mdpi2025transformer}.
+Thứ ba, bài toán phát hiện trong thực tế phức tạp hơn do tấn công đa vectơ, tấn công tốc độ thấp và đặc trưng lưu lượng biến thiên theo thời gian (đã được trình bày tại Bảng~\ref{tab:ddos_classification}). Các mô hình đơn lẻ thường khó đồng thời đạt độ chính xác cao, độ trễ thấp và tính ổn định khi dữ liệu mất cân bằng~\cite{mdpi2025transformer}.
 
 Thứ tư, phần lớn hệ thống tự động thiếu khả năng giải thích quyết định ở mức vận hành, gây khó khăn cho kiểm chứng và audit trước khi thực thi chính sách chặn hoặc chuyển hướng lưu lượng~\cite{lundberg2017unified}.
 
@@ -241,22 +264,21 @@ Các công trình liên quan có thể chia thành bốn hướng chính.
 
 \textbf{(2) Reinforcement Learning cho quyết định giảm thiểu.} QoSentry và DAMS chứng minh RL có thể tối ưu trade-off giữa QoS và hiệu quả phòng thủ; tuy nhiên chi phí huấn luyện, hội tụ chính sách và khả năng triển khai thực tế vẫn là thách thức~\cite{jnsm2025qosentry,khozam2024}.
 
-\textbf{(3) ML/DL cho phát hiện và dự báo DDoS.} Nhóm mô hình truyền thống (Random Forest, XGBoost, LightGBM) mạnh về tốc độ suy luận; nhóm DL/Transformer mạnh về biểu diễn phụ thuộc thời gian nhưng thường đánh đổi bằng độ trễ cao hơn~\cite{breiman2001rf,chen2016xgboost,vaswani2017attention,mdpi2025transformer}.
-
-\begin{table}[H]
+\textbf{(3) ML/DL cho phát hiện và dự báo DDoS.} Nhóm mô hình truyền thống (Random Forest, XGBoost, LightGBM) mạnh về tốc độ suy luận; nhóm DL/Transformer mạnh về biểu diễn phụ thuộc thời gian nhưng thường đánh đổi bằng độ trễ cao hơn~\cite{mdpi2025transformer}.
+\begin{table}[h]
 \centering
-\caption{So sánh các phương pháp ML trong phát hiện và dự báo DDoS}
-\label{tab:ml_comparison}
-\begin{tabularx}{\textwidth}{lXXccc}
-\toprule
-\textbf{Phương pháp} & \textbf{Ưu điểm chính} & \textbf{Dataset} & \textbf{Độ trễ} & \textbf{F1 (điển hình)} & \textbf{Tài liệu} \\
-\midrule
-Random Forest       & Ổn định, dễ diễn giải          & NSL-KDD, CICIDS2017       & TB         & 0.92--0.95 & \cite{breiman2001rf} \\
-XGBoost / LightGBM  & Nhanh, chính xác cao           & CICDDoS2019, CICIDS2018   & Thấp       & 0.95--0.99 & \cite{chen2016xgboost,ke2017lightgbm} \\
-CNN + GRU/LSTM      & Học đặc trưng cục bộ + tuần tự & CICDDoS2019               & Trung bình & 0.94--0.98 & \cite{scifrep2025cnngru} \\
-Transformer         & Phụ thuộc dài hạn, song song   & CICDDoS2019               & Cao        & 0.95--0.99 & \cite{mdpi2025transformer} \\
-\bottomrule
-\end{tabularx}
+\caption{Thống kê các kết quả SOTA trên bộ dữ liệu CICDDoS2019}
+\label{tab:cicddos2019_sources}
+\begin{tabular}{|l|c|p{8cm}|}
+\hline
+\textbf{Phương pháp} & \textbf{Độ chính xác} & \textbf{Tên bài báo / Nguồn gốc thông tin} \\ \hline
+Random Forest & 99.9974\% & Detecting Distributed Denial of Service Attacks (Hudaib et al.) \\ \hline
+ELM + Black-hole & 99.80\% & Optimized extreme learning machine for detecting DDoS attacks in cloud computing (Kamber et al.) \\ \hline
+CNN-LSTM Lai & 99.63\% & Empirical evaluation of ensemble learning and hybrid CNN-LSTM for IoT threat detection (Ahmed et al.) \\ \hline
+TD3 (DRL) & 99.12\% & Cloud-based DDoS detection using hybrid feature selection with deep reinforcement learning (Satpathy et al.) \\ \hline
+Standalone LSTM & 99.40\% & Evaluating the Performance of LSTM and GRU in Detection of DDoS Attacks (Subramanian et al.) \\ \hline
+
+\end{tabular}
 \end{table}
 
 \textbf{(4) ONAP-integrated closed-loop security.} RIGOUROUS là hướng tiếp cận gần nhất với triển khai công nghiệp khi tích hợp ONAP và network slicing đầu-cuối. Dù vậy, điểm hạn chế chính vẫn là thiên về phản ứng sau khi tấn công xuất hiện và chưa tích hợp sâu thành phần giải thích quyết định~\cite{benlloch2026,deoliveira2023}.

@@ -4,7 +4,7 @@ M2 — AI Output Schema & Proactive Trigger (Spec-aligned §4.5 / §4.6)
 Spec:
   - Detection payload: attack_type (7-class), confidence, top-5 SHAP features
   - Forecast payload: P(attack) at t+30s, t+60s, t+90s, t+120s
-  - Proactive trigger: if P(t+30s) > 0.70 → issue Tier 2 pre-positioning signal
+  - Proactive trigger: if P(t+30s) > 0.50 → issue Tier 2 pre-positioning signal
   - Output: JSON over DMaaP (simulated as local JSON file / REST stub)
 """
 
@@ -29,7 +29,7 @@ CLASS_NAMES = {
 }
 
 # ── Thresholds (spec §4.6) ───────────────────────────────────────────────────
-PROACTIVE_THRESHOLD = 0.70      # P(t+30s) > 0.70 → pre-position
+PROACTIVE_THRESHOLD = 0.50      # P(t+30s) > 0.50 → pre-position
 DETECTION_THRESHOLD = 0.50      # confidence > 0.50 → alert
 TIER2_ACTION        = "PREPOSITION_TIER2_MITIGATION"
 TIER3_ACTION        = "ACTIVATE_TIER3_MITIGATION"
@@ -126,7 +126,18 @@ def build_output(
 
     # ── Forecast ──────────────────────────────────────────────────────────────
     p30, p60, p90, p120 = [float(p) for p in forecast[:4]]
-    proactive_triggered = p30 > PROACTIVE_THRESHOLD
+
+    # Gate proactive trigger on BOTH Transformer AND XGBoost signals (Fix #3).
+    # Requires:
+    #   1. P(t+30s) > PROACTIVE_THRESHOLD  — Transformer sees future threat
+    #   2. XGBoost confidence > 0.75       — Current window is clearly attack
+    #   3. XGBoost class != Normal         — Not a false positive
+    CONF_GATE = 0.75
+    proactive_triggered = (
+        p30 > PROACTIVE_THRESHOLD
+        and confidence > CONF_GATE
+        and best_class != 0   # not Normal
+    )
     recommended_action  = TIER2_ACTION if proactive_triggered else "NONE"
 
     forecast_result = ForecastResult(
@@ -152,6 +163,8 @@ def build_output(
         logger.info(
             f"[ProactiveTrigger] window={window_id} "
             f"P(t+30s)={p30:.3f} > {PROACTIVE_THRESHOLD} "
+            f"conf={confidence:.3f} > {CONF_GATE} "
+            f"class={CLASS_NAMES[best_class]} "
             f"→ {TIER2_ACTION}"
         )
 
@@ -239,7 +252,7 @@ EXAMPLE_SCHEMA = {
     "proactive_trigger": {
         "triggered": True,
         "horizon_s": 30,
-        "threshold": 0.70,
+        "threshold": 0.50,
         "p_attack":  0.92,
         "action":    "PREPOSITION_TIER2_MITIGATION",
         "tier":      2,

@@ -5,3 +5,8 @@ __pycache__/
 *.pyo
 *.pyd
 Dataset/
+graphify-out/
+*.jsonl
+*.log
+.agent
+.claude

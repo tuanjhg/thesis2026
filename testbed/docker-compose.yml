@@ -1,27 +1,37 @@
 version: '3.8'
 
-# PAD-ONAP Infrastructure Stack
-# ================================
-# Chứa các infrastructure services (Kafka, gNMI, monitoring).
-# Python pipeline components (kafka_producer, flink_processor, live_pipeline)
-# chạy NATIVE trên host để tận dụng CUDA và dễ debug.
+# PAD-ONAP Infrastructure + M4 VNF Stack
+# =========================================
+# Infrastructure services: Kafka, gNMI, monitoring (Prometheus/Grafana).
+# M4 VNF containers     : scrubber, ratelimiter, analyzer, blackhole.
+# M2/M3 pipeline        : chạy NATIVE trên host (CUDA + dễ debug).
 #
-# Cấu hình server: sửa file .env trước khi chạy.
-# Port mặc định tránh xung đột ONAP:
-#   Kafka external : ${PAD_KAFKA_PORT:-9092}
-#   Prometheus     : ${PAD_PROMETHEUS_PORT:-9190}   (ONAP dùng 9090)
-#   Grafana        : ${PAD_GRAFANA_PORT:-3001}       (ONAP dùng 3000)
+# Cấu hình: sửa file .env trước khi chạy.
+# Port mặc định (tránh xung đột ONAP):
+#   Kafka external        : ${PAD_KAFKA_PORT:-9092}
+#   Prometheus            : ${PAD_PROMETHEUS_PORT:-9190}   (ONAP dùng 9090)
+#   Grafana               : ${PAD_GRAFANA_PORT:-3001}       (ONAP dùng 3000)
+#   VNF Scrubber          : ${PAD_VNF_SCRUBBER_PORT:-8001}
+#   VNF Rate-limiter      : ${PAD_VNF_RATELIMITER_PORT:-8002}
+#   VNF Analyzer          : ${PAD_VNF_ANALYZER_PORT:-8003}
+#   VNF Blackhole         : ${PAD_VNF_BLACKHOLE_PORT:-8004}
+#   Latency Prometheus    : ${PAD_LATENCY_PORT:-9292}
 #
 # Quick start:
-#   cp .env.example .env          # chỉnh PAD_HOST nếu cần
-#   docker compose up -d          # khởi động infrastructure
-#   ./deploy/start.sh             # khởi động Python pipeline
+#   cp .env.example .env                     # chỉnh PAD_HOST nếu cần
+#   docker compose build                     # build VNF images
+#   docker compose up -d                     # khởi động infrastructure + VNFs
+#   python -m pipeline.s4_orchestration.orchestrator --source http
+#
+# Plug-and-play ONAP:
+#   PAD_ONAP_STUB=false  → dùng ONAP SO + Policy Framework thật
+#   PAD_ONAP_STUB=true   → Docker stub (default, cho testbed)
 #
 # Kafka broker addresses:
 #   Từ Docker containers : kafka:${PAD_KAFKA_INTERNAL_PORT:-29092}
 #   Từ host native       : ${PAD_HOST:-localhost}:${PAD_KAFKA_PORT:-9092}
 #
-# Logs:   docker compose logs -f kafka
+# Logs:   docker compose logs -f pad-vnf-scrubber
 # Stop:   docker compose down
 
 services:
@@ -114,13 +124,7 @@ services:
       - pip_cache:/root/.cache/pip
     working_dir: /app
     # Pre-install deps then start; pip cache volume avoids re-download on restart
-    command: >
-      sh -c "pip install flask requests -q --no-cache-dir &&
-             python3 collector.py
-               --mode synthetic
-               --gnmi http://gnmi-simulator:8080
-               --api-port 7070
-               --interval 1.0"
+    command: sh -c "pip install flask requests -q --no-cache-dir && python3 -u collector.py --mode synthetic --gnmi http://gnmi-simulator:8080 --api-port 7070 --interval 1.0"
     ports:
       - "${PAD_COLLECTOR_PORT:-7070}:7070"
       - "${PAD_NETFLOW_UDP_PORT:-6343}:6343/udp"
@@ -245,13 +249,153 @@ services:
     labels:
       - "pad-onap.component=metrics-exporter"
 
-# ── Note: kafka-producer, flink-processor, live-pipeline ─────────────────────
+  # ── M4 VNF: Scrubber ────────────────────────────────────────────────────────
+  # Stateful SYN proxy + rate limiting (8 vCPU, 16 GB)
+  # Activated by Orchestrator on Tier 3/4 events via POST /activate
+  pad-vnf-scrubber:
+    build:
+      context: ../docker/vnf-scrubber
+      dockerfile: Dockerfile
+    container_name: pad-vnf-scrubber
+    image: pad-vnf-scrubber:latest
+    ports:
+      - "${PAD_VNF_SCRUBBER_PORT:-8001}:8001"
+    environment:
+      - PAD_VNF_MODE=standby
+    deploy:
+      resources:
+        limits:
+          cpus: '8'
+          memory: 16g
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python3", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "5"
+    labels:
+      - "pad-onap.component=vnf-scrubber"
+      - "pad-onap.tier=3,4"
+
+  # ── M4 VNF: Rate-limiter ─────────────────────────────────────────────────────
+  # Token-bucket per-flow rate limiter (2 vCPU, 2 GB)
+  # Activated on Tier 2 (PREEMPT) — pre-positioned, lower overhead
+  pad-vnf-ratelimiter:
+    build:
+      context: ../docker/vnf-ratelimiter
+      dockerfile: Dockerfile
+    container_name: pad-vnf-ratelimiter
+    image: pad-vnf-ratelimiter:latest
+    ports:
+      - "${PAD_VNF_RATELIMITER_PORT:-8002}:8002"
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2g
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python3", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:8002/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    labels:
+      - "pad-onap.component=vnf-ratelimiter"
+      - "pad-onap.tier=2"
+
+  # ── M4 VNF: Analyzer ─────────────────────────────────────────────────────────
+  # Packet capture + feature re-extraction → feeds M1 telemetry (2 vCPU, 4 GB)
+  pad-vnf-analyzer:
+    build:
+      context: ../docker/vnf-analyzer
+      dockerfile: Dockerfile
+    container_name: pad-vnf-analyzer
+    image: pad-vnf-analyzer:latest
+    ports:
+      - "${PAD_VNF_ANALYZER_PORT:-8003}:8003"
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 4g
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python3", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:8003/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    labels:
+      - "pad-onap.component=vnf-analyzer"
+      - "pad-onap.tier=2,3,4"
+
+  # ── M4 VNF: Blackhole ────────────────────────────────────────────────────────
+  # iptables-based null-routing (1 vCPU, 1 GB) — Tier 4 ISOLATE only
+  pad-vnf-blackhole:
+    build:
+      context: ../docker/vnf-blackhole
+      dockerfile: Dockerfile
+    container_name: pad-vnf-blackhole
+    image: pad-vnf-blackhole:latest
+    ports:
+      - "${PAD_VNF_BLACKHOLE_PORT:-8004}:8004"
+    # NET_ADMIN needed for real iptables; omit if running in stub mode
+    cap_add:
+      - NET_ADMIN
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1g
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python3", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:8004/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    labels:
+      - "pad-onap.component=vnf-blackhole"
+      - "pad-onap.tier=4"
+
+# ── Note: M2/M3 pipeline (kafka_producer, flink_processor, orchestrator) ─────
 # Chạy native trên host (không phải Docker) để:
-#   1. Tận dụng CUDA GPU trực tiếp (live_pipeline)
+#   1. Tận dụng CUDA GPU trực tiếp (InferenceEngine)
 #   2. Không cần pip install mỗi lần restart
-#   3. Dễ debug và monitor logs
+#   3. Dễ debug và monitor latency logs
 #
 # Xem deploy/start.sh để khởi động toàn bộ pipeline.
+# Orchestrator command:
+#   python -m pipeline.s4_orchestration.orchestrator \
+#       --source http --collector http://localhost:7070 \
+#       --model-dir ./pad_onap_v3/models \
+#       --latency-port 9292
 
 volumes:
   kafka_data:

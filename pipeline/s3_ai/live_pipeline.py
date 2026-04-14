@@ -46,6 +46,12 @@ Usage:
 
   # Lưu output ra file JSON (append):
   python pipeline/s3_ai/live_pipeline.py --out ./pad_onap_v3/live_output.jsonl
+
+  # Full M2→M3→M4 orchestration mode (bật cả policy engine + VNF lifecycle):
+  python pipeline/s3_ai/live_pipeline.py --orchestrate
+
+  # Orchestration với ONAP thật (PAD_ONAP_STUB=false):
+  PAD_ONAP_STUB=false python pipeline/s3_ai/live_pipeline.py --orchestrate
 """
 
 import argparse
@@ -451,20 +457,43 @@ def main():
                         help='Output JSONL file path (append mode)')
     parser.add_argument('--max-windows', type=int, default=None,
                         help='Stop after N inference windows (default: run forever)')
+    parser.add_argument('--orchestrate', action='store_true',
+                        help='Enable full M2→M3→M4 orchestration (policy + VNF lifecycle)')
+    parser.add_argument('--latency-port', type=int, default=9292,
+                        help='Prometheus latency metrics port (orchestrate mode only)')
     args = parser.parse_args()
 
-    run_live(
-        source        = args.source,
-        collector_url = args.collector,
-        broker        = args.broker,
-        model_dir     = args.model_dir,
-        data_dir      = args.data_dir,
-        interval      = args.interval,
-        device        = args.device,
-        shap_enabled  = not args.no_shap,
-        out_path      = args.out,
-        max_windows   = args.max_windows,
-    )
+    if args.orchestrate:
+        # Delegate to full Orchestrator (M2→M3→M4)
+        from pipeline.s4_orchestration.orchestrator import Orchestrator
+        orch = Orchestrator(
+            model_dir    = args.model_dir,
+            data_dir     = args.data_dir,
+            device       = args.device,
+            shap_enabled = not args.no_shap,
+            latency_port = args.latency_port,
+        )
+        orch.run(
+            source        = args.source,
+            collector_url = args.collector,
+            broker        = args.broker,
+            interval      = args.interval,
+            out_path      = args.out,
+            max_windows   = args.max_windows,
+        )
+    else:
+        run_live(
+            source        = args.source,
+            collector_url = args.collector,
+            broker        = args.broker,
+            model_dir     = args.model_dir,
+            data_dir      = args.data_dir,
+            interval      = args.interval,
+            device        = args.device,
+            shap_enabled  = not args.no_shap,
+            out_path      = args.out,
+            max_windows   = args.max_windows,
+        )
 
 
 if __name__ == '__main__':

@@ -94,10 +94,20 @@ class InferenceEngine:
 
         # Lazy SHAP explainer (initialized on first infer call)
         self._shap_explainer = None
+        self._shap_pkg_failed = False   # True after first shap-package failure
 
         # Latency tracking
         self._latencies_xgb: list = []
         self._latencies_transformer: list = []
+
+        # ── Forecast Exponential Decay (Fix #2) ──────────────────────────────
+        # Smooths the Transformer output so forecasts decay back toward 0
+        # after an attack ends, rather than staying perpetually high.
+        # decay_alpha: weight given to the new raw forecast (0 < alpha <= 1).
+        #   alpha=1.0  → no smoothing (original behavior)
+        #   alpha=0.15 → slow decay; ~20 windows to drop from 1.0 to 0.05
+        self._forecast_alpha: float = 0.15
+        self._ema_forecast: list = [0.0, 0.0, 0.0, 0.0]  # running EMA
 
         self.transformer.eval()
         logger.info(f"InferenceEngine ready | device={device} | SHAP={shap_enabled}")
@@ -211,7 +221,7 @@ class InferenceEngine:
             scaler = pickle.load(f)
         logger.info(f"  ✓ Scaler loaded: {scaler_path}")
 
-        return cls(
+        engine = cls(
             booster      = booster,
             transformer  = transformer,
             scaler       = scaler,
@@ -220,6 +230,29 @@ class InferenceEngine:
             device       = device,
             shap_enabled = shap_enabled,
         )
+        cls._warmup(engine)
+        return engine
+
+    # ── Model Warm-up (Fix #3) ────────────────────────────────────────────────
+
+    @classmethod
+    def _warmup(cls, engine: 'InferenceEngine') -> None:
+        """
+        Run a few dummy forward passes so PyTorch JIT compiles the CUDA kernels
+        before the live loop starts. This eliminates the ≈1-second P99 spike
+        observed at W50 in the first latency summary.
+        """
+        logger.info("  Running model warm-up (2 dummy passes)...")
+        dummy = np.zeros(N_FEATURES, dtype=np.float32)
+        for _ in range(2):
+            engine.infer(dummy)
+        # Reset state so warm-up windows don't pollute the live buffer
+        engine._buffer.clear()
+        engine._window_id = 0
+        engine._latencies_xgb.clear()
+        engine._latencies_transformer.clear()
+        engine._ema_forecast = [0.0, 0.0, 0.0, 0.0]
+        logger.info("  Warm-up complete — inference engine ready.")
 
     # ── Core inference ────────────────────────────────────────────────────────
 
@@ -248,7 +281,15 @@ class InferenceEngine:
         self._buffer.append(x_scaled)
 
         # 4. Transformer → 4-horizon forecast
-        forecast_4, tf_ms = self._run_transformer()
+        raw_forecast_4, tf_ms = self._run_transformer()
+
+        # 4b. Apply EMA decay so forecast recovers after attack ends (Fix #2)
+        alpha = self._forecast_alpha
+        self._ema_forecast = [
+            alpha * raw_f + (1.0 - alpha) * ema_f
+            for raw_f, ema_f in zip(raw_forecast_4, self._ema_forecast)
+        ]
+        forecast_4 = self._ema_forecast
 
         # 5. Compose payload
         payload = build_output(
@@ -300,39 +341,86 @@ class InferenceEngine:
         return class_probs_7, shap_top5, ms
 
     def _compute_shap(self, x_scaled: np.ndarray, predicted_class: int) -> dict:
-        """Compute SHAP top-K for the predicted class."""
+        """
+        Compute SHAP top-K for the predicted class.
+
+        Priority:
+          1. XGBoost native pred_contribs=True  — no extra package, always works
+          2. shap.TreeExplainer                 — richer API, used as cross-check
+          3. booster.get_score(gain)             — static fallback, no per-sample values
+        """
+        n_feat = len(FEATURE_NAMES)
+        top_k  = min(TOP_K_SHAP, n_feat)
+        remapped_cls = self.label_to_idx.get(predicted_class, 0)
+
+        # ── Method 1: XGBoost native pred_contribs ────────────────────────────
         try:
-            if self._shap_explainer is None:
-                import shap
-                self._shap_explainer = shap.TreeExplainer(self.booster)
-
-            dm_shap = xgb.DMatrix(x_scaled.reshape(1, -1))
-            shap_out = self._shap_explainer(dm_shap)
-            sv = shap_out.values  # (1, n_features, n_classes) or similar
-
-            # Extract SHAP for predicted class
-            n_cls = len(self.label_to_idx)
-            if hasattr(sv, 'ndim') and sv.ndim == 3:
-                # (1, features, n_classes_remapped)
-                remapped_cls = self.label_to_idx.get(predicted_class, 0)
-                if remapped_cls < sv.shape[2]:
-                    shap_vals = np.abs(sv[0, :, remapped_cls])
+            dm       = xgb.DMatrix(x_scaled.reshape(1, -1))
+            contribs = self.booster.predict(dm, pred_contribs=True)
+            # XGBoost 2.x multi-class returns (1, n_classes, n_feat+1)
+            # or (1, n_feat+1) for binary. Flatten and parse defensively.
+            arr = np.array(contribs)
+            if arr.ndim == 3:
+                # (1, n_classes, n_feat+1) — take the predicted class row
+                n_cls = arr.shape[1]
+                rc    = min(remapped_cls, n_cls - 1)
+                shap_vals = np.abs(arr[0, rc, :n_feat])
+            elif arr.ndim == 2:
+                flat = arr.flatten()
+                n_cls = len(self.label_to_idx)
+                stride = n_feat + 1
+                if len(flat) >= n_cls * stride:
+                    # (1, n_classes * (n_feat+1)) layout
+                    rc = min(remapped_cls, n_cls - 1)
+                    shap_vals = np.abs(flat[rc * stride: rc * stride + n_feat])
                 else:
-                    shap_vals = np.abs(sv[0]).mean(axis=-1) if sv.ndim == 3 else np.abs(sv[0])
-            elif hasattr(sv, 'ndim') and sv.ndim == 2:
-                shap_vals = np.abs(sv[0])
+                    shap_vals = np.abs(flat[:n_feat])
             else:
-                shap_vals = np.abs(np.array(sv)).flatten()[:len(FEATURE_NAMES)]
+                shap_vals = np.abs(arr.flatten()[:n_feat])
 
-            # Pad/trim to feature count
-            n = min(len(shap_vals), len(FEATURE_NAMES))
-            top_k = min(TOP_K_SHAP, n)
-            top_idx = np.argsort(shap_vals[:n])[-top_k:][::-1]
-            return {FEATURE_NAMES[i]: float(shap_vals[i]) for i in top_idx}
-
+            if len(shap_vals) >= top_k and shap_vals.sum() > 0:
+                top_idx = np.argsort(shap_vals)[-top_k:][::-1]
+                return {FEATURE_NAMES[i]: float(shap_vals[i]) for i in top_idx}
         except Exception as e:
-            logger.debug(f"SHAP skipped: {e}")
-            return {}
+            logger.debug(f"pred_contribs failed: {e} — trying shap package")
+
+        # ── Method 2: shap.TreeExplainer (skip if already known-failed) ──────
+        if not self._shap_pkg_failed:
+            try:
+                if self._shap_explainer is None:
+                    import shap as _shap
+                    self._shap_explainer = _shap.TreeExplainer(self.booster)
+
+                x_np     = x_scaled.reshape(1, -1)
+                shap_out = self._shap_explainer(x_np)
+                sv       = np.array(shap_out.values)
+
+                if sv.ndim == 3:
+                    rc = min(remapped_cls, sv.shape[2] - 1)
+                    shap_vals = np.abs(sv[0, :n_feat, rc])
+                elif sv.ndim == 2:
+                    shap_vals = np.abs(sv[0, :n_feat])
+                else:
+                    shap_vals = np.abs(sv.flatten()[:n_feat])
+
+                if shap_vals.sum() > 0:
+                    top_idx = np.argsort(shap_vals)[-top_k:][::-1]
+                    return {FEATURE_NAMES[i]: float(shap_vals[i]) for i in top_idx}
+            except Exception as e:
+                logger.warning(f"shap.TreeExplainer failed: {e} — using get_score fallback")
+                self._shap_pkg_failed = True
+
+        # ── Method 3: static feature importance (get_score) ──────────────────
+        try:
+            scores = self.booster.get_score(importance_type='gain')
+            if scores:
+                top = sorted(scores.items(), key=lambda kv: -kv[1])[:top_k]
+                total = sum(v for _, v in top) or 1.0
+                return {k: round(v / total, 6) for k, v in top}
+        except Exception:
+            pass
+
+        return {}
 
     # ── Private: Transformer ──────────────────────────────────────────────────
 

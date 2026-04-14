@@ -27,6 +27,38 @@ scrape_configs:
     metrics_path: '/metrics'
     scrape_interval: 5s
 
+  # M4 VNF metrics
+  - job_name: 'pad-vnf-scrubber'
+    static_configs:
+      - targets: ['pad-vnf-scrubber:8001']
+    metrics_path: '/metrics'
+    scrape_interval: 5s
+
+  - job_name: 'pad-vnf-ratelimiter'
+    static_configs:
+      - targets: ['pad-vnf-ratelimiter:8002']
+    metrics_path: '/metrics'
+    scrape_interval: 5s
+
+  - job_name: 'pad-vnf-analyzer'
+    static_configs:
+      - targets: ['pad-vnf-analyzer:8003']
+    metrics_path: '/metrics'
+    scrape_interval: 5s
+
+  - job_name: 'pad-vnf-blackhole'
+    static_configs:
+      - targets: ['pad-vnf-blackhole:8004']
+    metrics_path: '/metrics'
+    scrape_interval: 5s
+
+  # M3 Orchestrator latency tracker (runs on host)
+  - job_name: 'pad-orchestrator-latency'
+    static_configs:
+      - targets: ['host.docker.internal:9292']
+    metrics_path: '/metrics'
+    scrape_interval: 5s
+
   # Prometheus self-monitoring
   - job_name: 'prometheus'
     static_configs:
