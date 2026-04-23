@@ -1,0 +1,33 @@
+{
+  "scenario": "S5_icmp_burst_ood",
+  "n_windows": 100,
+  "max_tier_reached": 0,
+  "tier_dist": {
+    "0": 100,
+    "1": 0,
+    "2": 0,
+    "3": 0,
+    "4": 0
+  },
+  "proactive_count": 0,
+  "e2e_latency_ms": {
+    "p50": 0,
+    "p95": 0,
+    "p99": 0,
+    "n": 0
+  },
+  "tier2_latency_ms": {
+    "p50": 0,
+    "p95": 0,
+    "p99": 0,
+    "n": 0
+  },
+  "tier3_latency_ms": {
+    "p50": 0,
+    "p95": 0,
+    "p99": 0,
+    "n": 0
+  },
+  "sla_ok": true,
+  "pass_fail": "PASS"
+}

@@ -1,0 +1,33 @@
+{
+  "scenario": "S8_proactive_t2_vs_reactive_t3",
+  "n_windows": 120,
+  "max_tier_reached": 3,
+  "tier_dist": {
+    "0": 57,
+    "1": 0,
+    "2": 0,
+    "3": 63,
+    "4": 0
+  },
+  "proactive_count": 0,
+  "e2e_latency_ms": {
+    "p50": 6006.96,
+    "p95": 6006.96,
+    "p99": 6006.96,
+    "n": 1
+  },
+  "tier2_latency_ms": {
+    "p50": 0,
+    "p95": 0,
+    "p99": 0,
+    "n": 0
+  },
+  "tier3_latency_ms": {
+    "p50": 6006.96,
+    "p95": 6006.96,
+    "p99": 6006.96,
+    "n": 1
+  },
+  "sla_ok": true,
+  "pass_fail": "PASS"
+}

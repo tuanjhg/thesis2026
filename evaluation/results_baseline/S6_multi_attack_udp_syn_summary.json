@@ -1,0 +1,33 @@
+{
+  "scenario": "S6_multi_attack_udp_syn",
+  "n_windows": 130,
+  "max_tier_reached": 3,
+  "tier_dist": {
+    "0": 64,
+    "1": 0,
+    "2": 0,
+    "3": 66,
+    "4": 0
+  },
+  "proactive_count": 0,
+  "e2e_latency_ms": {
+    "p50": 6002.44,
+    "p95": 6003.74,
+    "p99": 6003.86,
+    "n": 2
+  },
+  "tier2_latency_ms": {
+    "p50": 0,
+    "p95": 0,
+    "p99": 0,
+    "n": 0
+  },
+  "tier3_latency_ms": {
+    "p50": 6002.44,
+    "p95": 6003.74,
+    "p99": 6003.86,
+    "n": 2
+  },
+  "sla_ok": true,
+  "pass_fail": "PASS"
+}

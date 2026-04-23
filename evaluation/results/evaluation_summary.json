@@ -1,0 +1,271 @@
+{
+  "total_scenarios": 8,
+  "passed": 8,
+  "failed": 0,
+  "scenarios": [
+    {
+      "scenario": "S1_normal_baseline",
+      "n_windows": 100,
+      "max_tier_reached": 0,
+      "tier_dist": {
+        "0": 100,
+        "1": 0,
+        "2": 0,
+        "3": 0,
+        "4": 0
+      },
+      "proactive_count": 0,
+      "e2e_latency_ms": {
+        "p50": 0,
+        "p95": 0,
+        "p99": 0,
+        "n": 0
+      },
+      "tier2_latency_ms": {
+        "p50": 0,
+        "p95": 0,
+        "p99": 0,
+        "n": 0
+      },
+      "tier3_latency_ms": {
+        "p50": 0,
+        "p95": 0,
+        "p99": 0,
+        "n": 0
+      },
+      "sla_ok": true,
+      "pass_fail": "PASS"
+    },
+    {
+      "scenario": "S2_sudden_udp_flood",
+      "n_windows": 110,
+      "max_tier_reached": 3,
+      "tier_dist": {
+        "0": 62,
+        "1": 0,
+        "2": 0,
+        "3": 48,
+        "4": 0
+      },
+      "proactive_count": 0,
+      "e2e_latency_ms": {
+        "p50": 6006.02,
+        "p95": 6006.02,
+        "p99": 6006.02,
+        "n": 1
+      },
+      "tier2_latency_ms": {
+        "p50": 0,
+        "p95": 0,
+        "p99": 0,
+        "n": 0
+      },
+      "tier3_latency_ms": {
+        "p50": 6006.02,
+        "p95": 6006.02,
+        "p99": 6006.02,
+        "n": 1
+      },
+      "sla_ok": true,
+      "pass_fail": "PASS"
+    },
+    {
+      "scenario": "S3_gradual_syn_ramp",
+      "n_windows": 120,
+      "max_tier_reached": 2,
+      "tier_dist": {
+        "0": 50,
+        "1": 0,
+        "2": 70,
+        "3": 0,
+        "4": 0
+      },
+      "proactive_count": 67,
+      "e2e_latency_ms": {
+        "p50": 505.51,
+        "p95": 505.51,
+        "p99": 505.51,
+        "n": 1
+      },
+      "tier2_latency_ms": {
+        "p50": 505.51,
+        "p95": 505.51,
+        "p99": 505.51,
+        "n": 1
+      },
+      "tier3_latency_ms": {
+        "p50": 0,
+        "p95": 0,
+        "p99": 0,
+        "n": 0
+      },
+      "sla_ok": true,
+      "pass_fail": "PASS"
+    },
+    {
+      "scenario": "S4_http_flood_ood",
+      "n_windows": 120,
+      "max_tier_reached": 1,
+      "tier_dist": {
+        "0": 115,
+        "1": 5,
+        "2": 0,
+        "3": 0,
+        "4": 0
+      },
+      "proactive_count": 0,
+      "e2e_latency_ms": {
+        "p50": 0,
+        "p95": 0,
+        "p99": 0,
+        "n": 0
+      },
+      "tier2_latency_ms": {
+        "p50": 0,
+        "p95": 0,
+        "p99": 0,
+        "n": 0
+      },
+      "tier3_latency_ms": {
+        "p50": 0,
+        "p95": 0,
+        "p99": 0,
+        "n": 0
+      },
+      "sla_ok": true,
+      "pass_fail": "PASS"
+    },
+    {
+      "scenario": "S5_icmp_burst_ood",
+      "n_windows": 100,
+      "max_tier_reached": 0,
+      "tier_dist": {
+        "0": 100,
+        "1": 0,
+        "2": 0,
+        "3": 0,
+        "4": 0
+      },
+      "proactive_count": 0,
+      "e2e_latency_ms": {
+        "p50": 0,
+        "p95": 0,
+        "p99": 0,
+        "n": 0
+      },
+      "tier2_latency_ms": {
+        "p50": 0,
+        "p95": 0,
+        "p99": 0,
+        "n": 0
+      },
+      "tier3_latency_ms": {
+        "p50": 0,
+        "p95": 0,
+        "p99": 0,
+        "n": 0
+      },
+      "sla_ok": true,
+      "pass_fail": "PASS"
+    },
+    {
+      "scenario": "S6_multi_attack_udp_syn",
+      "n_windows": 130,
+      "max_tier_reached": 3,
+      "tier_dist": {
+        "0": 46,
+        "1": 0,
+        "2": 51,
+        "3": 33,
+        "4": 0
+      },
+      "proactive_count": 48,
+      "e2e_latency_ms": {
+        "p50": 3254.78,
+        "p95": 5729.56,
+        "p99": 5949.54,
+        "n": 2
+      },
+      "tier2_latency_ms": {
+        "p50": 505.04,
+        "p95": 505.04,
+        "p99": 505.04,
+        "n": 1
+      },
+      "tier3_latency_ms": {
+        "p50": 6004.53,
+        "p95": 6004.53,
+        "p99": 6004.53,
+        "n": 1
+      },
+      "sla_ok": true,
+      "pass_fail": "PASS"
+    },
+    {
+      "scenario": "S7_sla_fairness_3tenant",
+      "n_windows": 120,
+      "max_tier_reached": 2,
+      "tier_dist": {
+        "0": 39,
+        "1": 0,
+        "2": 81,
+        "3": 0,
+        "4": 0
+      },
+      "proactive_count": 78,
+      "e2e_latency_ms": {
+        "p50": 505.71,
+        "p95": 505.71,
+        "p99": 505.71,
+        "n": 1
+      },
+      "tier2_latency_ms": {
+        "p50": 505.71,
+        "p95": 505.71,
+        "p99": 505.71,
+        "n": 1
+      },
+      "tier3_latency_ms": {
+        "p50": 0,
+        "p95": 0,
+        "p99": 0,
+        "n": 0
+      },
+      "sla_ok": true,
+      "pass_fail": "PASS"
+    },
+    {
+      "scenario": "S8_proactive_t2_vs_reactive_t3",
+      "n_windows": 120,
+      "max_tier_reached": 3,
+      "tier_dist": {
+        "0": 57,
+        "1": 0,
+        "2": 26,
+        "3": 37,
+        "4": 0
+      },
+      "proactive_count": 30,
+      "e2e_latency_ms": {
+        "p50": 3255.64,
+        "p95": 5731.0,
+        "p99": 5951.04,
+        "n": 2
+      },
+      "tier2_latency_ms": {
+        "p50": 505.23,
+        "p95": 505.23,
+        "p99": 505.23,
+        "n": 1
+      },
+      "tier3_latency_ms": {
+        "p50": 6006.05,
+        "p95": 6006.05,
+        "p99": 6006.05,
+        "n": 1
+      },
+      "sla_ok": true,
+      "pass_fail": "PASS"
+    }
+  ]
+}
