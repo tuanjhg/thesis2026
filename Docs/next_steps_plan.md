@@ -364,3 +364,153 @@ May 11     ████  SUBMISSION DEADLINE
 ---
 
 *Cập nhật: 2026-04-14 (lần 2). Task A hoàn thành: chapter_phase3_4_orchestration.tex 187→273 dòng, số liệu latency + LP + VNF đã đúng.*
+# Next-Step Plan — Củng cố luận văn thạc sĩ
+
+_Mục tiêu: đưa project từ "đủ code" lên "đủ luận văn bảo vệ được"._
+_Thứ tự ưu tiên: P0 (bắt buộc bảo vệ) → P1 (nên có) → P2 (bonus)._
+
+---
+
+## P0 — Bắt buộc trước khi bảo vệ
+
+### P0.1 Chạy và thu kết quả baseline + lead-time
+- [ ] Chạy `python -m evaluation.baseline_threshold` → sinh `evaluation/results_baseline/`
+- [ ] Chạy `python -m evaluation.lead_time_analyzer` → sinh `lead_time_comparison.{md,csv}`
+- [ ] Kiểm tra baseline có **FAIL** ở S3/S4/S5 để chứng minh AI tốt hơn (nếu PASS hết → phải re-tune threshold hoặc thêm scenario khó hơn)
+- [ ] Vẽ 1 biểu đồ cột **T2-proactive latency vs T3-reactive latency vs Baseline-reactive latency** (3 cột × 8 scenarios)
+
+### P0.2 Multi-seed + confidence interval
+- [ ] Chạy mỗi scenario với ≥ 5 seed khác nhau (`_normal_features(n, seed=…)`), thu p50/p95 ± CI
+- [ ] Thêm flag `--seeds 42,43,44,45,46` vào `evaluation/scenarios.py`
+- [ ] Output: bảng mean ± std thay vì 1 điểm đơn. Bảo vệ thạc sĩ yêu cầu nghiêm ngặt hơn 1-run.
+
+### P0.3 Chạy fat-tree và thu metric thực
+- [ ] `sudo python3 testbed/mininet/fat_tree_topology.py --k 4 --test` → log pingall, iperf h0↔h15
+- [ ] Viết `testbed/fat_tree_attack_scenario.py`: inject UDP flood từ h0 → h15, đo thời gian SFC rule propagate qua 3 pod
+- [ ] So sánh latency cài rule **cùng pod** vs **khác pod** (core-layer steering cost)
+
+### P0.4 Bản thảo luận văn (LaTeX / Word)
+- [ ] Tạo `Docs/thesis.tex` hoặc `thesis.docx` theo template của trường
+- [ ] 6 chương theo `thesis_evidence_map.md`:
+  - Ch1 Mở đầu (3-5 trang)
+  - Ch2 Cơ sở (15-20 trang) — ONAP, NFV, SDN, ML cho DDoS
+  - Ch3 Kiến trúc đề xuất (10-15 trang) — vẽ lại 3 sơ đồ
+  - Ch4 Thành phần AI (15-20 trang)
+  - Ch5 Thực nghiệm (15-20 trang) — nhúng bảng/hình
+  - Ch6 Kết luận (3-5 trang)
+- [ ] Tóm tắt tiếng Việt + tiếng Anh (abstract, mỗi bản 250-400 từ)
+
+### P0.5 Related work bảng so sánh
+- [ ] Tạo `Docs/related_work.md` với bảng so sánh **≥ 8 công trình** gần đây (2020-2025) theo các trục:
+  - AI model | Orchestration | Proactive? | Dataset | DCN? | Open source?
+- [ ] Ít nhất 3 paper IEEE/ACM/Elsevier trong lĩnh vực ONAP/NFV-DDoS
+- [ ] Chỉ rõ **khoảng trống** đề tài lấp vào (unique contribution)
+
+### P0.6 Sơ đồ kiến trúc vector (PNG/SVG)
+- [ ] Vẽ 3 sơ đồ cần thiết (draw.io / Mermaid / TikZ):
+  1. Kiến trúc 4-tầng S1→S4 + ONAP closed-loop
+  2. 5-tier escalation state machine (T0→T4, hysteresis)
+  3. Fat-tree k=4 với attack path highlight
+- [ ] Lưu tại `Docs/figures/*.svg` + `.png` 300 DPI
+
+---
+
+## P1 — Nên có để bảo vệ điểm cao
+
+### P1.1 Ablation study
+- [ ] Ablation 1: **tắt forecast** (chỉ detection) → chạy S3/S7/S8, đo lead-time về 0
+- [ ] Ablation 2: **tắt adversarial training** → test lại model trên FGSM attack, so AUC
+- [ ] Ablation 3: **chỉ XGBoost** vs **chỉ Transformer** vs **cả hai** → F1 + latency
+- [ ] Output: `evaluation/ablation_results.md`
+
+### P1.2 Real NetFlow thay vì feature giả
+- [ ] Dùng `testbed/netflow_collector/` bắt flow thật từ Mininet attack
+- [ ] Pipeline: Mininet (hping3/iperf DDoS) → nfcapd → feature extractor → AI → orchestrator
+- [ ] Chứng minh e2e không chỉ chạy trên feature tổng hợp
+
+### P1.3 ONAP thật (1 scenario demo)
+- [ ] Chạy ONAP OOM (hoặc minimal: SO + Policy + DMaaP) trên VM
+- [ ] Set `PAD_ONAP_STUB=false`, chạy 1 scenario (S2 hoặc S8) end-to-end
+- [ ] Record video / screenshot để chứng minh interface không chỉ là stub
+
+### P1.4 Adaptive attacker (threat model)
+- [ ] Thêm scenario S9: attacker biết rate-limit threshold, tấn công **dưới ngưỡng** (low-and-slow)
+- [ ] Kiểm tra forecast có bắt được không
+- [ ] Thêm mục **Threat Model** ở Ch3 luận văn (assumption, attacker capability)
+
+### P1.5 Thống kê + reproducibility
+- [ ] `scripts/reproduce_all.sh`: 1 lệnh sinh lại toàn bộ bảng + hình trong luận văn
+- [ ] Pin `requirements.txt` với hash (pip freeze)
+- [ ] Seed cố định ở mọi nơi (numpy, torch, xgboost)
+- [ ] Docker image đầy đủ (`docker/Dockerfile.reproduce`) để examiner chạy lại
+
+### P1.6 Hysteresis + frequency-guard analysis
+- [ ] Test `PolicyEngine` với tần suất dao động cao → đo số lần flip tier (flapping)
+- [ ] Vẽ hình so sánh **có vs không** hysteresis
+- [ ] Kết quả vào Ch5 như một micro-benchmark của Policy layer
+
+### P1.7 SLA fairness deep-dive
+- [ ] S7 hiện chỉ check `sla_satisfied` bool. Mở rộng: đo **% bandwidth URLLC nhận được** vs **demand** dưới VNF overhead tier 2/3
+- [ ] Vẽ biểu đồ **stacked bar** bandwidth phân bổ 3 tenant theo tier
+- [ ] Chứng minh LP allocator giữ URLLC floor ngay cả lúc tier 3
+
+---
+
+## P2 — Bonus (nếu có thời gian)
+
+### P2.1 Slide bảo vệ
+- [ ] 25-30 slide PowerPoint/Beamer, 15-20 phút trình bày
+- [ ] 3 slide chính: (1) vấn đề, (2) kiến trúc + novelty S8, (3) kết quả định lượng
+- [ ] Dry-run với advisor
+
+### P2.2 So sánh với > 1 baseline
+- [ ] Ngoài threshold, thêm baseline **Snort/Suricata rule-based** (chạy snort với rule CICIDS)
+- [ ] Và 1 baseline ML cũ (ví dụ Random Forest 2019)
+- [ ] Bảng so sánh 4-way: Snort | RF | Threshold | AI (ours)
+
+### P2.3 Khảo sát scale
+- [ ] Chạy fat-tree k=6 (54 host) và k=8 (128 host)
+- [ ] Đo orchestrator throughput (flow/s) khi số device tăng
+- [ ] Điểm bão hòa (knee point) → chương giới hạn
+
+### P2.4 Giải thích mô hình (XAI)
+- [ ] Xuất SHAP top-5 feature cho 100 window attack
+- [ ] Biểu đồ heatmap feature importance theo loại tấn công
+- [ ] Thêm subsection "AI Interpretability" vào Ch4
+
+### P2.5 Bài báo hội nghị
+- [ ] Chắt lọc Ch3-Ch5 → paper 6-8 trang IEEE format
+- [ ] Submit hội nghị IEEE NFV-SDN / NetSoft / CNSM 2026
+- [ ] Advisor đồng tác giả
+
+### P2.6 Công khai repo + demo video
+- [ ] Push GitHub public (nếu thầy OK) kèm README có badge
+- [ ] Video demo 3 phút (asciinema hoặc screencast)
+- [ ] Hữu ích cho phần vấn đáp
+
+---
+
+## Lộ trình đề xuất (8 tuần trước bảo vệ)
+
+| Tuần | P0 tasks | P1 tasks |
+|---|---|---|
+| 1 | P0.1 baseline + lead-time chạy xong | — |
+| 2 | P0.2 multi-seed, P0.3 fat-tree đo | P1.1 ablation bắt đầu |
+| 3 | P0.5 related work, P0.6 sơ đồ | P1.2 real NetFlow |
+| 4-5 | P0.4 viết Ch1-Ch3 | P1.6/P1.7 |
+| 6 | P0.4 viết Ch4-Ch5 | P1.4 adaptive attacker |
+| 7 | P0.4 viết Ch6, abstract, hiệu đính | P1.5 reproducibility |
+| 8 | P2.1 slide + dry-run | — |
+
+## Checklist tối thiểu để bảo vệ
+
+- [x] Code AI + orchestration chạy được (đã có)
+- [x] 8/8 scenario S1–S8 PASS (đã có)
+- [ ] **Baseline quantitative comparison** (P0.1) — chưa chạy
+- [ ] **Multi-seed CI** (P0.2) — chưa có
+- [ ] **Bản thảo luận văn hoàn chỉnh** (P0.4) — chưa có
+- [ ] **Related work ≥ 8 paper** (P0.5) — chưa có
+- [ ] **3 sơ đồ kiến trúc vector** (P0.6) — chưa có
+- [ ] **Slide bảo vệ** (P2.1) — chưa có
+
+_File này là **nguồn chân lý** cho backlog luận văn. Update mỗi tuần._

@@ -1,0 +1,112 @@
+\chapter{Background and Related Work}
+\label{ch:background}
+
+\section{DDoS taxonomy in data-center networks}
+\label{sec:ddos-taxonomy}
+
+DDoS attacks relevant to the DCN setting fall into three broad families.
+\emph{Volumetric} floods (UDP, ICMP, amplification) aim to saturate links
+at the edge or aggregation layer. \emph{Protocol} exhaustion attacks
+(SYN flood, TCP state exhaustion) target control-plane state of middleboxes
+and servers. \emph{Application-layer} attacks (HTTP flood, Slow-rate)
+mimic legitimate traffic at high rate or low rate and are notoriously hard
+to separate from flash-crowd events. CICDDoS2019 remains the most widely
+cited public dataset covering the first two families; application-layer
+samples are present as labels but with incomplete flow data, which
+constrains empirical studies and motivates our multi-class design (see
+\S\ref{sec:dataset-limits}).
+
+\section{NFV, SFC and OpenFlow}
+
+Network Function Virtualization (NFV), standardised by ETSI, decouples
+packet-processing functions from specialised hardware. Service Function
+Chaining (SFC) composes such VNFs into ordered chains; OpenFlow (and its
+OVS implementation) provides the south-bound mechanism to steer traffic
+through a chain. For DDoS mitigation the relevant VNFs are rate-limiters,
+scrubbers, flow analysers, and black-holing functions, each with distinct
+boot latency and resource footprint.
+
+\section{ONAP MANO closed loop}
+\label{sec:onap}
+
+ONAP is the Linux Foundation reference orchestrator. The relevant
+sub-components for closed-loop DDoS response are:
+\begin{itemize}
+  \item \textbf{SO} (Service Orchestrator) --- instantiates/terminates VNFs
+        through the \texttt{/onap/so/infra/serviceInstantiation/v7/} REST API.
+  \item \textbf{CLAMP} (Closed Loop Automation Management Platform) --- owns
+        closed-loop templates and pushes policies.
+  \item \textbf{Policy Framework} --- evaluates Drools rules, issues
+        operational policies.
+  \item \textbf{DMaaP} --- the Kafka-based message bus that carries AI
+        decisions to CLAMP/Policy.
+\end{itemize}
+\padonap{} emits a canonical \texttt{AIOutputPayload} JSON on DMaaP; the
+remaining closed-loop path is ONAP-native.
+
+\section{ML models for network security}
+
+Three model families dominate the literature. \emph{Tree ensembles}
+(XGBoost~\citep{chen2016xgboost}, LightGBM, Random Forests) offer strong
+accuracy on tabular flow features and sub-millisecond inference. \emph{Deep
+sequence models} (LSTM, Transformer~\citep{vaswani2017attention}) capture
+temporal structure and enable forecasting. \emph{Graph neural networks}
+model host-to-host interaction but require flow-level graph construction.
+\padonap{} combines XGBoost (detection) with Transformer+LSTM (forecasting)
+to exploit both families.
+
+\section{Forecasting horizons and the proactive gap}
+
+A forecaster that predicts attack probability at time \(t{+}h\) permits
+\emph{pre-positioning} --- instantiating VNFs \emph{before} the attack
+peaks. The predictable lead-time is bounded above by the forecast horizon
+\(h\) and below by the VNF boot latency. Choosing \(h\) too short collapses
+to reactive behaviour; choosing \(h\) too long degrades AUC beyond useful.
+We pick four horizons \(h \in \{30,60,90,120\}\) s and show (§\ref{sec:forecast})
+that AUC degrades monotonically from \(0.988\) to \(0.971\).
+
+\section{Fat-tree DCNs}
+We evaluate on a Mininet fat-tree with \(k{=}4\) (20 switches, 16 hosts),
+following the classical Al-Fares design, which gives three pod levels
+(edge, aggregation, core). This allows us to measure the cost of
+installing SFC rules on paths that traverse 1, 2, or 3 pod levels ---
+a measurement absent from reactive baselines that assume single-switch
+deployment.
+
+\section{Related work comparison}
+\label{sec:related}
+
+Table~\ref{tab:related} compares eight recent systems across six axes
+relevant to this thesis. The only system combining \emph{all four pillars}
+(ML detection, multi-horizon forecast, ONAP-compliant orchestration, and
+LP-based multi-tenant SLA) is \padonap{}.
+
+\begin{table}[H]
+\centering
+\footnotesize
+\caption{Related-work comparison matrix. $\bullet$ = supported, $\circ$ = partial, blank = absent.}
+\label{tab:related}
+\begin{tabular}{@{}lcccccc@{}}
+\toprule
+System & ML det. & Forecast & MANO & Multi-tenant SLA & Proactive & DCN eval. \\
+\midrule
+TST-DDoS (IEEE Access 2025)        & $\bullet$ &            &            &            &            &            \\
+NetProbe (ICDCN 2025)               & $\bullet$ &            & $\circ$    &            & $\circ$    & $\bullet$  \\
+FlowGuard (NDSS 2022)               & $\bullet$ & $\circ$    &            &            & $\circ$    &            \\
+Lightweight ML (Sci.~Rep.~2025)     & $\bullet$ &            &            &            &            &            \\
+DAWN (Springer LNCS 2025)           & $\bullet$ &            & $\circ$    &            &            & $\circ$    \\
+Transformer+TCN (PLOS One 2025)     & $\bullet$ & $\circ$    &            &            & $\circ$    &            \\
+Latency-aware NFV-6G (MDPI 2024)    & $\circ$   &            & $\bullet$  & $\circ$    &            & $\circ$    \\
+Cross-layer SDN/NFV (MDPI 2025)     & $\bullet$ &            & $\bullet$  &            &            & $\bullet$  \\
+\textbf{\padonap{} (ours)}          & \textbf{$\bullet$} & \textbf{$\bullet$} & \textbf{$\bullet$} & \textbf{$\bullet$} & \textbf{$\bullet$} & \textbf{$\bullet$} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Research gap}
+From Table~\ref{tab:related}, three gaps motivate this work:
+(G1) no prior system pairs multi-horizon forecasting with MANO-compliant
+lifecycle management; (G2) no prior system ties mitigation tier to an
+LP-backed tenant SLA guarantee; (G3) graceful handling of OOD traffic
+(application-layer and ICMP variants absent from training) is rarely
+measured and, when measured, often yields over-escalation.

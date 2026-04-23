@@ -1,0 +1,90 @@
+% !TEX TS-program = pdflatex
+% !TEX encoding = UTF-8 Unicode
+\documentclass[12pt,a4paper,oneside]{report}
+
+% ── Core packages ────────────────────────────────────────────────────────────
+\usepackage[utf8]{inputenc}
+\usepackage[T5,T1]{fontenc}      % T5 for Vietnamese
+\usepackage[vietnamese,english]{babel}
+\usepackage{lmodern}
+\usepackage[a4paper,margin=2.5cm]{geometry}
+\usepackage{setspace}
+\onehalfspacing
+
+% ── Figures, tables, code ────────────────────────────────────────────────────
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{array}
+\usepackage{longtable}
+\usepackage{float}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{tikz}
+\usetikzlibrary{shapes.geometric,arrows.meta,positioning,fit,calc}
+
+% ── Math, algorithm ──────────────────────────────────────────────────────────
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{mathtools}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+
+% ── Referencing ──────────────────────────────────────────────────────────────
+\usepackage[hidelinks,colorlinks=false]{hyperref}
+\usepackage{cleveref}
+\usepackage[round]{natbib}
+\bibliographystyle{plainnat}
+
+% ── Theorems ─────────────────────────────────────────────────────────────────
+\newtheorem{definition}{Definition}[chapter]
+\newtheorem{assumption}{Assumption}[chapter]
+\newtheorem{invariant}{Invariant}[chapter]
+\newtheorem{theorem}{Theorem}[chapter]
+
+% ── Listings style for Python / JSON ─────────────────────────────────────────
+\lstset{
+  basicstyle=\footnotesize\ttfamily,
+  keywordstyle=\color{blue!70!black}\bfseries,
+  stringstyle=\color{red!60!black},
+  commentstyle=\color{gray},
+  numbers=left,numberstyle=\tiny\color{gray},
+  frame=single,framerule=0.3pt,
+  breaklines=true,tabsize=2,
+  showstringspaces=false,
+}
+
+% ── Custom commands ──────────────────────────────────────────────────────────
+\newcommand{\padonap}{\textsc{PAD-ONAP}}
+\newcommand{\tier}[1]{\textsf{T#1}}
+
+\title{\Huge\bfseries AI-Augmented NFV Orchestration for Proactive DDoS Mitigation
+in Data Center Networks}
+\author{Nguyễn Anh Tuấn}
+\date{\today}
+
+% ── Document ─────────────────────────────────────────────────────────────────
+\begin{document}
+\selectlanguage{english}
+
+\pagenumbering{roman}
+\maketitle
+\input{chapters/abstract}
+\tableofcontents
+\listoffigures
+\listoftables
+
+\clearpage
+\pagenumbering{arabic}
+
+\input{chapters/ch01_intro}
+\input{chapters/ch02_background}
+\input{chapters/ch03_architecture}
+\input{chapters/ch04_ai}
+\input{chapters/ch05_evaluation}
+\input{chapters/ch06_conclusion}
+
+\bibliography{references}
+
+\end{document}

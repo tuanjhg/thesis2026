@@ -1,0 +1,102 @@
+\chapter{Introduction}
+\label{ch:intro}
+
+\section{Motivation}
+\label{sec:motivation}
+
+Distributed Denial-of-Service (DDoS) attacks have grown in both volume and
+diversity. Recent industry reports record multi-terabit-per-second volumetric
+floods and simultaneously show a rise in application-layer
+and low-rate attacks that evade simple rate thresholds. In modern
+cloud data-center networks (DCNs) these attacks threaten not only single
+victims but also co-tenants sharing the physical substrate: a volumetric
+surge against one tenant can saturate fat-tree aggregation or core links
+and violate the service-level agreements (SLAs) of neighbouring tenants.
+
+The dominant defensive posture today is \emph{reactive}: detection rules
+fire only after the offending feature --- typically packet rate or SYN
+ratio --- crosses a static threshold, at which point the control-plane
+instantiates a mitigation Virtual Network Function (VNF). The latency of
+this loop is dominated by VNF boot time. In our measurements the reactive
+path required approximately \(6{,}006\) ms end-to-end; during this window
+the attack proceeds unchecked.
+
+This latency is not a property of any specific orchestrator --- it is
+structural. Reducing it requires acting \emph{before} the attack crosses
+the reactive trigger, which in turn requires a forecast.
+
+\section{Problem statement}
+\label{sec:problem}
+
+We target the orchestrator of a multi-tenant DCN whose east-west and
+north-south traffic is monitored via gNMI and NetFlow, whose mitigation
+capacity is expressed as instantiable VNFs under an ONAP MANO control
+plane, and whose tenants hold differentiated SLAs (e.g. URLLC with
+guaranteed floor, eMBB best-effort, mMTC elastic). The defender must decide,
+for every 5-second telemetry window, \emph{which} tier of mitigation to
+apply --- ranging from do-nothing to heavy scrubbing --- so as to minimise
+attack impact while preserving benign-tenant SLAs and keeping false-positive
+actuation bounded.
+
+Existing systems either (i) detect but do not orchestrate, (ii) orchestrate
+reactively without forecasting, or (iii) forecast but do not integrate with
+a standards-compliant MANO stack nor with a multi-tenant SLA model.
+
+\section{Research questions and hypotheses}
+\label{sec:rq}
+
+We formalise the scope of this thesis through three research questions
+and three testable hypotheses.
+
+\begin{itemize}
+  \item \textbf{RQ1 (Lead-time).} Does an ML forecaster reduce end-to-end
+        mitigation latency compared with a rule-based threshold baseline
+        at a controlled false-positive rate?
+  \item \textbf{RQ2 (SLA).} Does a graduated five-tier policy engine
+        preserve tenant SLAs under active mitigation?
+  \item \textbf{RQ3 (Safety).} Is pre-positioning at tier \tier{2} safe ---
+        i.e. does it not degrade benign tenants below their SLA floor, and
+        can it be rolled back within bounded time?
+\end{itemize}
+
+\begin{itemize}
+  \item \textbf{H1.} On gradual attacks (SYN-ramp), the ML forecaster
+        triggers mitigation \(\geq 30\) s earlier than the threshold
+        baseline.
+  \item \textbf{H2.} Binary detection accuracy \(\geq 98\%\) and AUC
+        \(\geq 0.99\) under a temporal 80/20 train/test split with no
+        shuffling.
+  \item \textbf{H3.} Under all eight evaluation scenarios the URLLC
+        bandwidth floor of 150 Mbps is preserved at every tier.
+\end{itemize}
+
+\section{Contributions}
+\label{sec:contrib}
+
+\begin{enumerate}
+  \item An \emph{AI-augmented four-tier architecture} (S1: telemetry;
+        S2: features; S3: AI inference; S4: orchestration) that plugs a
+        proactive forecast output into an ONAP closed loop.
+  \item A \emph{multi-horizon DDoS forecaster} (Transformer+LSTM,
+        \(t{+}30,60,90,120\) s) whose AUC degradation curve is consistent
+        with the physical forecast-horizon trade-off.
+  \item A \emph{linear-programming multi-tenant SLA allocator} that
+        guarantees URLLC floors under VNF overhead up to 700 Mbps.
+  \item A \emph{quantitative comparison} against a rule-based threshold
+        baseline showing a 65 s lead-time advantage on gradual attacks
+        and an out-of-distribution (OOD) robustness advantage (baseline
+        FAIL on S4/S5; \padonap{} PASS).
+\end{enumerate}
+
+\section{Thesis outline}
+The remainder of the thesis is structured as follows.
+Chapter~\ref{ch:background} surveys DDoS defense, NFV/ONAP, and ML for
+network security, and positions \padonap{} against related work.
+Chapter~\ref{ch:architecture} presents the proposed architecture, its
+threat model, and the safety invariants.
+Chapter~\ref{ch:ai} details the AI components --- feature engineering,
+XGBoost detection, Transformer--LSTM forecasting, validation, and
+interpretability.
+Chapter~\ref{ch:eval} reports the experimental evaluation against the
+threshold baseline, lead-time analysis, and SLA behaviour.
+Chapter~\ref{ch:conclusion} concludes and outlines future work.
