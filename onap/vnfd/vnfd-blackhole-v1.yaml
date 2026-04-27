@@ -1,0 +1,93 @@
+# VNFD — PAD-ONAP Blackhole VNF
+# ETSI SOL001 v2.7.1  — Tier 4 SEVERE action
+# ──────────────────────────────────────────────────────────────
+tosca_definitions_version: tosca_simple_yaml_1_3
+
+metadata:
+  template_name:    pad-onap-blackhole
+  template_version: "1.0.0"
+  id:               vnfd-blackhole-v1
+
+description: >
+  Upstream null-routing (blackhole) VNF for Tier 4 SEVERE DDoS response.
+  Installs iptables DROP rules at the border. Expected boot time: ~200 ms.
+
+node_types:
+  pad.nodes.nfv.VNF.Blackhole:
+    derived_from: tosca.nodes.nfv.VNF
+    properties:
+      descriptor_id:
+        type: string
+        default: vnfd-blackhole-v1
+      provider:
+        type: string
+        default: pad-onap
+      product_name:
+        type: string
+        default: PAD-Blackhole
+      software_version:
+        type: string
+        default: "1.0.0"
+      vnfd_version:
+        type: string
+        default: "1.0.0"
+      flavour_id:
+        type: string
+        default: default
+      drop_inbound:
+        type: boolean
+        default: true
+      preserve_management:
+        type: boolean
+        default: true
+
+topology_template:
+  node_templates:
+
+    pad-blackhole:
+      type: pad.nodes.nfv.VNF.Blackhole
+
+    pad-blackhole-vdu:
+      type: tosca.nodes.nfv.Vdu.Compute
+      properties:
+        name: pad-blackhole-vdu
+        vdu_profile:
+          min_number_of_instances: 1
+          max_number_of_instances: 1
+      capabilities:
+        virtual_compute:
+          properties:
+            virtual_memory:
+              virtual_mem_size: 1 GB
+            virtual_cpu:
+              num_virtual_cpu: 1
+
+    pad-blackhole-sw:
+      type: tosca.nodes.nfv.Vdu.OsContainerDeployableUnit
+      artifacts:
+        sw_image:
+          type: tosca.artifacts.nfv.SwImage
+          properties:
+            name: pad-vnf-blackhole
+            version: "1.0"
+            container_format: docker
+            image: pad-vnf-blackhole:latest
+      requirements:
+        - virtual_compute: pad-blackhole-vdu
+
+    pad-blackhole-health:
+      type: tosca.nodes.nfv.Vdu.OsContainer
+      properties:
+        name: blackhole-main
+        requested_additional_capabilities:
+          health_check:
+            requested_additional_capability_name: health_check
+            support_mandatory: true
+            requested_additional_capability_version: "1"
+            target_performance_parameters:
+              http_endpoint: "/health"
+              http_port: "8004"
+              initial_delay_seconds: "1"
+              period_seconds: "2"
+              timeout_seconds: "1"
+              failure_threshold: "2"

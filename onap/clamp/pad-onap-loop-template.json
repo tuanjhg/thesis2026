@@ -1,0 +1,194 @@
+{
+  "_comment": "CLAMP Closed Loop Template for PAD-ONAP DDoS Mitigation",
+  "_version": "1.0.0",
+  "_description": "Import via CLAMP UI: Design → Control Loop → Import Template",
+
+  "name": "PAD-ONAP-DDoS-ClosedLoop",
+  "version": "1.0.0",
+  "description": "AI-driven proactive DDoS mitigation closed loop for multi-tenant DCN",
+
+  "trigger": {
+    "type": "dmaap",
+    "topic": "PAD_ONAP_AI_SIGNALS",
+    "consumerGroup": "pad-onap-clamp-cg",
+    "consumerId": "pad-onap-clamp-01",
+    "fetchLimit": 100,
+    "fetchTimeoutMs": 15000,
+    "_comment": "CLAMP polls this DMaaP topic for AIOutputPayload events"
+  },
+
+  "guard_policies": [
+    {
+      "id": "pad-guard-t2-frequency",
+      "type": "frequency",
+      "description": "Prevent T2 VNF churn: min 50s between instantiations",
+      "properties": {
+        "actor": "SO",
+        "operation": "VF Module Create",
+        "timeWindow": 50,
+        "timeUnits": "second",
+        "limit": 1
+      }
+    },
+    {
+      "id": "pad-guard-t3-blackout",
+      "type": "blacklist",
+      "description": "Block T3 during scheduled maintenance windows",
+      "properties": {
+        "actor": "SO",
+        "operation": "VF Module Create",
+        "blacklistDurations": []
+      }
+    }
+  ],
+
+  "operational_policies": [
+    {
+      "id": "pad-policy-tier2-preempt",
+      "name": "PAD T2 Proactive Pre-position",
+      "description": "Instantiate rate-limiter VNF when AI suggests Tier 2 (proactive)",
+      "priority": 1,
+      "trigger_condition": {
+        "field": "suggested_tier",
+        "operator": "==",
+        "value": 2,
+        "AND": {
+          "field": "proactive",
+          "operator": "==",
+          "value": true
+        }
+      },
+      "operations": [
+        {
+          "id": "op-t2-so-create",
+          "actor": "SO",
+          "operation": "VF Module Create",
+          "target": {
+            "type": "VNF",
+            "resourceID": "vnfd-ratelimiter-v1"
+          },
+          "payload": {
+            "requestParameters": {
+              "userParams": [
+                {"name": "vnfProfile",  "value": "vnfd-ratelimiter-v1"},
+                {"name": "mode",        "value": "preposition"},
+                {"name": "trigger",     "value": "proactive"},
+                {"name": "pad_tier",    "value": "2"}
+              ]
+            }
+          },
+          "timeout": 30,
+          "retries": 2,
+          "failure_policy": "IGNORE"
+        }
+      ]
+    },
+
+    {
+      "id": "pad-policy-tier3-mitigate",
+      "name": "PAD T3 Reactive Mitigation",
+      "description": "Instantiate scrubber VNF when AI suggests Tier 3 (reactive)",
+      "priority": 2,
+      "trigger_condition": {
+        "field": "suggested_tier",
+        "operator": ">=",
+        "value": 3
+      },
+      "operations": [
+        {
+          "id": "op-t3-so-create",
+          "actor": "SO",
+          "operation": "VF Module Create",
+          "target": {
+            "type": "VNF",
+            "resourceID": "vnfd-scrubber-v1"
+          },
+          "payload": {
+            "requestParameters": {
+              "userParams": [
+                {"name": "vnfProfile",  "value": "vnfd-scrubber-v1"},
+                {"name": "mode",        "value": "mitigate"},
+                {"name": "pad_tier",    "value": "3"}
+              ]
+            }
+          },
+          "timeout": 60,
+          "retries": 1,
+          "failure_policy": "FAIL"
+        },
+        {
+          "id": "op-t3-sfc-steer",
+          "actor": "SDNC",
+          "operation": "Reroute",
+          "description": "Install OVS SFC rule to steer traffic through scrubber",
+          "depends_on": "op-t3-so-create",
+          "payload": {
+            "serviceInstanceId": "${op-t3-so-create.serviceInstanceId}",
+            "sfcChain": "pad-scrubber-chain"
+          },
+          "timeout": 10,
+          "retries": 2
+        }
+      ]
+    },
+
+    {
+      "id": "pad-policy-tier4-severe",
+      "name": "PAD T4 Blackhole",
+      "description": "Upstream blackhole for Tier 4 SEVERE",
+      "priority": 3,
+      "trigger_condition": {
+        "field": "suggested_tier",
+        "operator": "==",
+        "value": 4
+      },
+      "operations": [
+        {
+          "id": "op-t4-blackhole",
+          "actor": "SO",
+          "operation": "VF Module Create",
+          "target": {
+            "type": "VNF",
+            "resourceID": "vnfd-blackhole-v1"
+          },
+          "timeout": 15,
+          "retries": 1
+        }
+      ]
+    },
+
+    {
+      "id": "pad-policy-rollback",
+      "name": "PAD Tier Rollback",
+      "description": "Terminate VNF when tier drops to 0 (NORMAL) for hysteresis window",
+      "priority": 10,
+      "trigger_condition": {
+        "field": "suggested_tier",
+        "operator": "==",
+        "value": 0
+      },
+      "operations": [
+        {
+          "id": "op-rollback-terminate",
+          "actor": "SO",
+          "operation": "VF Module Delete",
+          "target": {"type": "VNF", "resourceID": "any-active"},
+          "timeout": 30,
+          "retries": 1,
+          "failure_policy": "IGNORE"
+        }
+      ]
+    }
+  ],
+
+  "monitoring": {
+    "prometheus_metrics": [
+      "pad_tier_current",
+      "pad_proactive_count_total",
+      "pad_t2_latency_ms",
+      "pad_t3_latency_ms",
+      "pad_sla_violations_total"
+    ],
+    "grafana_dashboard": "onap/k8s/grafana-dashboard.json"
+  }
+}

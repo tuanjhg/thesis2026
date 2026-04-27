@@ -1,0 +1,113 @@
+# VNFD — PAD-ONAP Traffic Scrubber VNF
+# ETSI SOL001 v2.7.1
+# Upload to ONAP SDC → Tier 3 MITIGATE action
+# ──────────────────────────────────────────────────────────────
+tosca_definitions_version: tosca_simple_yaml_1_3
+
+metadata:
+  template_name:    pad-onap-scrubber
+  template_version: "1.0.0"
+  template_author:  pad-onap
+  id:               vnfd-scrubber-v1
+
+description: >
+  Stateful SYN-proxy + deep-packet-inspection scrubber VNF for Tier 3 reactive
+  DDoS mitigation (MITIGATE). Filters attack flows while forwarding legitimate
+  connections. Expected boot time: ~6 s (stateful engine init).
+
+imports:
+  - etsi_nfv_sol001_vnfd_types.yaml
+
+node_types:
+  pad.nodes.nfv.VNF.Scrubber:
+    derived_from: tosca.nodes.nfv.VNF
+    properties:
+      descriptor_id:
+        type: string
+        default: vnfd-scrubber-v1
+      provider:
+        type: string
+        default: pad-onap
+      product_name:
+        type: string
+        default: PAD-Scrubber
+      software_version:
+        type: string
+        default: "1.0.0"
+      vnfd_version:
+        type: string
+        default: "1.0.0"
+      flavour_id:
+        type: string
+        default: default
+      # Scrubber-specific
+      syn_proxy_enabled:
+        type: boolean
+        default: true
+      dpi_enabled:
+        type: boolean
+        default: true
+      max_tracked_flows:
+        type: integer
+        default: 1000000
+
+topology_template:
+  node_templates:
+
+    pad-scrubber:
+      type: pad.nodes.nfv.VNF.Scrubber
+
+    pad-scrubber-vdu:
+      type: tosca.nodes.nfv.Vdu.Compute
+      properties:
+        name: pad-scrubber-vdu
+        description: Scrubber compute unit (high CPU/RAM for DPI)
+        vdu_profile:
+          min_number_of_instances: 1
+          max_number_of_instances: 2
+      capabilities:
+        virtual_compute:
+          properties:
+            virtual_memory:
+              virtual_mem_size: 16 GB
+            virtual_cpu:
+              num_virtual_cpu: 8
+            virtual_local_storage:
+              - size_of_storage: 20 GB
+
+    pad-scrubber-sw:
+      type: tosca.nodes.nfv.Vdu.OsContainerDeployableUnit
+      properties:
+        name: pad-scrubber-container
+        description: SYN-proxy scrubber container
+        nfvi_constraints:
+          - key: kubernetes_namespace
+            value: pad-onap
+      artifacts:
+        sw_image:
+          type: tosca.artifacts.nfv.SwImage
+          properties:
+            name: pad-vnf-scrubber
+            version: "1.0"
+            container_format: docker
+            disk_format: raw
+            image: pad-vnf-scrubber:latest
+      requirements:
+        - virtual_compute: pad-scrubber-vdu
+
+    pad-scrubber-health:
+      type: tosca.nodes.nfv.Vdu.OsContainer
+      properties:
+        name: scrubber-main
+        requested_additional_capabilities:
+          health_check:
+            requested_additional_capability_name: health_check
+            support_mandatory: true
+            requested_additional_capability_version: "1"
+            target_performance_parameters:
+              http_endpoint: "/health"
+              http_port: "8001"
+              initial_delay_seconds: "10"
+              period_seconds: "5"
+              timeout_seconds: "5"
+              failure_threshold: "3"

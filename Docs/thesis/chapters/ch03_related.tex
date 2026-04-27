@@ -1,0 +1,175 @@
+%══════════════════════════════════════════════════════════════════════
+%  CHAPTER 3 — Related Work
+%══════════════════════════════════════════════════════════════════════
+\chapter{Related Work}
+\label{ch:related}
+
+This chapter reviews the literature on ML-based DDoS detection and
+NFV orchestration, positions \padonap{} against eight recent systems
+on a six-axis comparison matrix, and identifies three research gaps
+that motivate the design choices made in this thesis.
+
+%%─────────────────────────────────────────────────────────────────────
+\section{ML-Based DDoS Detection Systems}
+\label{sec:related-ml}
+
+\textbf{TST-DDoS (IEEE Access 2025).}
+TST-DDoS proposes a two-stage tree-based pipeline with engineered
+flow features achieving an accuracy of 97.1\% and macro-F1 of 95.3\%
+on CICDDoS2019. The system performs classification only and does not
+integrate with a MANO or orchestration layer; it has no forecasting
+or proactive capability.
+
+\textbf{Lightweight ML (Scientific Reports 2025).}
+This work evaluates a set of lightweight classifiers---Random Forest,
+Decision Tree, and a shallow neural network---for DDoS detection in
+resource-constrained edge nodes, achieving accuracy 96.2\% and F1
+94.8\%. As with TST-DDoS, there is no orchestration integration,
+multi-tenant SLA model, or proactive path.
+
+\textbf{DAWN (Springer LNCS 2025).}
+DAWN (DDoS-Aware NFV) introduces a hierarchical ML detector deployed
+alongside a simplified NFV orchestrator. It partially addresses
+orchestration (partial MANO) but does not implement a proactive forecast;
+mitigation is initiated only after detection. Multi-tenant SLA is not
+formalised.
+
+%%─────────────────────────────────────────────────────────────────────
+\section{Systems with Partial Orchestration or Forecasting}
+\label{sec:related-orch}
+
+\textbf{NetProbe (ICDCN 2025).}
+NetProbe combines a Gradient Boosting classifier with a lightweight
+probe-based orchestration mechanism. It achieves partial MANO
+integration and includes a simple one-tier pre-positioning step,
+but the forecasting horizon is a single step and no multi-tenant SLA
+guarantee is provided. VNF boot latency is reported at approximately
+3{,}000~ms, substantially higher than the 505~ms achieved by \padonap{}'s
+pre-positioned rate-limiter.
+
+\textbf{FlowGuard (NDSS 2022).}
+FlowGuard introduces a single-horizon traffic forecaster integrated
+with a flow-rule update mechanism. It partially addresses proactive
+response but lacks a standards-compliant MANO interface and a multi-tenant
+SLA model. The forecasting depth (single horizon, approximately 15~s)
+is insufficient to cover full VNF boot cycles.
+
+\textbf{Transformer+TCN (PLOS One 2025).}
+This work combines a Transformer encoder with a Temporal Convolutional
+Network (TCN) for multi-class DDoS classification and offers a
+single-step forecast. It achieves partial proactive capability but
+does not interface with any orchestration platform, nor does it address
+multi-tenant SLA.
+
+%%─────────────────────────────────────────────────────────────────────
+\section{NFV Orchestration-Focused Approaches}
+\label{sec:related-nfv}
+
+\textbf{Latency-Aware NFV-6G (MDPI 2024).}
+This work focuses on latency-aware VNF placement in 5G/6G networks,
+proposing a partial ML model for placement decisions. Orchestration is
+a primary contribution, with partial multi-tenant SLA modelling. However,
+actual VNF instantiation latency is reported at 8{,}000--14{,}000~ms in
+the Kubernetes testbed, and there is no proactive or forecasting component.
+\padonap{}'s pre-positioned rate-limiter activates at 505~ms---a factor
+of $>15\times$ faster.
+
+\textbf{Cross-Layer SDN/NFV (MDPI 2025).}
+This system addresses cross-layer coordination between SDN flow rules
+and NFV VNF chains for DDoS response in a DCN evaluation setting.
+It achieves full MANO integration and DCN-scale evaluation, but
+detection relies on threshold rules rather than ML, and no proactive
+or multi-tenant SLA component is described.
+
+%%─────────────────────────────────────────────────────────────────────
+\section{Comparison Matrix}
+\label{sec:related-matrix}
+
+Table~\ref{tab:related} compares the eight reviewed systems against
+\padonap{} on six axes derived directly from the research questions in
+Chapter~\ref{ch:intro}: (1) ML-based detection, (2) multi-horizon
+forecasting, (3) standards-compliant MANO integration, (4) multi-tenant
+SLA guarantee, (5) proactive VNF pre-positioning, and (6) DCN-scale
+evaluation.
+
+\begin{table}[H]
+\centering
+\footnotesize
+\caption{Related-work comparison matrix. $\bullet$ = fully supported;
+$\circ$ = partially supported; blank = absent.}
+\label{tab:related}
+\begin{tabular}{@{}lcccccc@{}}
+\toprule
+System & ML & Multi-horizon & MANO & SLA & Proactive & DCN \\
+       & det. & forecast & compliant & guarantee & VNF & eval. \\
+\midrule
+TST-DDoS (IEEE Access 2025)          & $\bullet$ &            &            &            &            &            \\
+NetProbe (ICDCN 2025)                & $\bullet$ &            & $\circ$    &            & $\circ$    & $\bullet$  \\
+FlowGuard (NDSS 2022)                & $\bullet$ & $\circ$    &            &            & $\circ$    &            \\
+Lightweight ML (Sci.~Rep.~2025)      & $\bullet$ &            &            &            &            &            \\
+DAWN (Springer LNCS 2025)            & $\bullet$ &            & $\circ$    &            &            & $\circ$    \\
+Transformer+TCN (PLOS One 2025)      & $\bullet$ & $\circ$    &            &            & $\circ$    &            \\
+Latency-aware NFV-6G (MDPI 2024)     & $\circ$   &            & $\bullet$  & $\circ$    &            & $\circ$    \\
+Cross-layer SDN/NFV (MDPI 2025)      & $\bullet$ &            & $\bullet$  &            &            & $\bullet$  \\
+\midrule
+\textbf{\padonap{} (ours)}
+  & \textbf{$\bullet$}
+  & \textbf{$\bullet$}
+  & \textbf{$\bullet$}
+  & \textbf{$\bullet$}
+  & \textbf{$\bullet$}
+  & \textbf{$\bullet$} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\padonap{} is the only system in this review to achieve a full $\bullet$
+on all six axes. The next best-covered systems (NetProbe, DAWN) each
+achieve at most three partial or full marks and none covers multi-horizon
+forecasting combined with LP-guaranteed SLA.
+
+%%─────────────────────────────────────────────────────────────────────
+\section{Research Gaps}
+\label{sec:gaps}
+
+The comparison matrix reveals three concrete gaps that this thesis
+addresses:
+
+\begin{enumerate}
+  \item \textbf{G1 --- No multi-horizon forecast + MANO pairing.}
+        No prior system pairs a multi-horizon (4-step) DDoS forecast
+        with a standards-compliant (ONAP) MANO lifecycle interface.
+        Partial forecasters (FlowGuard, Transformer+TCN) stop at
+        single-step and do not interact with real orchestrators.
+        \padonap{} closes this gap with Transformer+LSTM at four
+        horizons ($t{+}30, 60, 90, 120$~s) integrated into the ONAP
+        closed loop.
+
+  \item \textbf{G2 --- No LP-backed SLA under mitigation.}
+        None of the reviewed systems formally guarantees per-tenant
+        bandwidth floors during active mitigation. This is a critical
+        gap in multi-tenant DCN deployments where URLLC tenants must
+        retain their contracted floor even when the orchestrator
+        activates a VNF chain. \padonap{} closes this gap with an
+        LP SLA allocator solved at every tier transition.
+
+  \item \textbf{G3 --- OOD robustness not measured.}
+        No prior work explicitly measures the behaviour of their system
+        on out-of-distribution traffic (attack classes absent from
+        training). This matters because network traffic distributions
+        shift over time, and a system that over-escalates on OOD traffic
+        causes unnecessary tenant disruption. \padonap{} explicitly
+        measures OOD behaviour in scenarios S4 and S5 and demonstrates
+        graceful under-response.
+\end{enumerate}
+
+%%─────────────────────────────────────────────────────────────────────
+\section{Chapter Summary}
+\label{sec:related-summary}
+
+This chapter reviewed eight recent DDoS detection and NFV orchestration
+systems and identified three research gaps: the absence of a multi-horizon
+forecast integrated with MANO, the absence of LP-backed SLA guarantees
+under mitigation, and the lack of explicit OOD robustness measurement.
+These three gaps directly map to contributions~2, 3, and 4 of \padonap{},
+respectively. The proposed system is described in full in the next chapter.

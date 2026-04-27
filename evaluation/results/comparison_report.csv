@@ -1,0 +1,9 @@
+sid,label,ai_verdict,ai_max_tier,ai_proact,ai_t2_ms,ai_t3_ms,ai_sla,bl_verdict,bl_max_tier,bl_t2_ms,bl_t3_ms,bl_sla,first_proact_win,first_r_ai_win,first_r_base_win,lead_ai_s,lead_base_s,speedup
+S1,Normal traffic (benign),PASS,T0,0,0,0,YES,PASS,T0,0,0,YES,,,,,,---
+S2,Sudden UDP flood,PASS,T3,0,0,6006.02,YES,PASS,T3,0,6009.27,YES,,37,32,,,---
+S3,Gradual SYN ramp,PASS,T2,67,505.51,0,YES,PASS,T3,501.0,6001.0,YES,42,,55,,65.0,---
+S4,HTTP flood (OOD),PASS,T1,0,0,0,YES,FAIL,T2,501.0,0,YES,,,,,,---
+S5,ICMP burst (OOD),PASS,T0,0,0,0,YES,FAIL,T2,504.34,0,YES,,,,,,---
+S6,Multi-attack UDP+SYN,PASS,T3,48,505.04,6004.53,YES,PASS,T3,0,6002.44,YES,71,32,32,-195.0,-195.0,11.9x
+S7,SLA fairness (3-tenant),PASS,T2,78,505.71,0,YES,PASS,T3,0,6003.97,YES,31,,32,,5.0,---
+S8,Proactive vs reactive,PASS,T3,30,505.23,6006.05,YES,PASS,T3,0,6006.96,YES,31,58,32,135.0,5.0,11.9x

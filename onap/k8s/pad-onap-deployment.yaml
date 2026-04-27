@@ -1,0 +1,253 @@
+# PAD-ONAP Pipeline — Kubernetes Deployment
+# Deploy: kubectl apply -f onap/k8s/pad-onap-deployment.yaml
+# Namespace: pad-onap (must exist; ONAP runs in namespace "onap")
+# ─────────────────────────────────────────────────────────────
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: pad-onap
+  labels:
+    app: pad-onap
+
+---
+# ── ConfigMap: all PAD_ environment variables ─────────────────
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pad-onap-config
+  namespace: pad-onap
+data:
+  PAD_ONAP_STUB:          "false"
+  PAD_ONAP_SO_URL:        "http://so.onap.svc.cluster.local:8080"
+  PAD_DMAAP_HOST:         "message-router.onap.svc.cluster.local"
+  PAD_DMAAP_PORT:         "3904"
+  PAD_DMAAP_TOPIC:        "PAD_ONAP_AI_SIGNALS"
+  PAD_DMAAP_USE_KAFKA:    "false"
+  PAD_ONAP_POLICY_URL:    "http://policy-pap.onap.svc.cluster.local:6969"
+  PAD_OVS_BRIDGE:         "br-pad"
+  PAD_SDN_URL:            "http://sdnr.onap.svc.cluster.local:8282"
+  PAD_GNMI_PORT:          "8080"
+  PAD_COLLECTOR_PORT:     "7070"
+  PAD_PROMETHEUS_PORT:    "9190"
+  PAD_LATENCY_PORT:       "9292"
+  PAD_MODEL_DIR:          "/app/models_v2"
+  PAD_DATA_DIR:           "/app/data"
+  LOG_LEVEL:              "INFO"
+
+---
+# ── Secret: ONAP credentials ──────────────────────────────────
+apiVersion: v1
+kind: Secret
+metadata:
+  name: pad-onap-secrets
+  namespace: pad-onap
+type: Opaque
+stringData:
+  PAD_ONAP_SO_USER:       "so_admin"
+  PAD_ONAP_SO_PASS:       "demo123456!"
+  PAD_ONAP_POLICY_USER:   "healthcheck"
+  PAD_ONAP_POLICY_PASS:   "zb!XztG34"
+  PAD_DMAAP_USER:         ""
+  PAD_DMAAP_PASS:         ""
+
+---
+# ── PersistentVolumeClaim: models + data ──────────────────────
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pad-onap-models-pvc
+  namespace: pad-onap
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+
+---
+# ── Deployment: PAD-ONAP AI + Orchestration pipeline ──────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pad-onap-pipeline
+  namespace: pad-onap
+  labels:
+    app: pad-onap-pipeline
+    version: "1.0.0"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pad-onap-pipeline
+  template:
+    metadata:
+      labels:
+        app: pad-onap-pipeline
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port:   "9292"
+        prometheus.io/path:   "/metrics"
+    spec:
+      serviceAccountName: pad-onap-sa
+
+      initContainers:
+        # Wait for DMaaP to be ready before starting
+        - name: wait-dmaap
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              until nc -z message-router.onap.svc.cluster.local 3904; do
+                echo "waiting for DMaaP..."; sleep 5;
+              done
+              echo "DMaaP ready"
+
+        # Wait for ONAP SO to be ready
+        - name: wait-so
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              until nc -z so.onap.svc.cluster.local 8080; do
+                echo "waiting for SO..."; sleep 5;
+              done
+              echo "SO ready"
+
+      containers:
+        - name: pad-pipeline
+          image: pad-onap/pipeline:1.0.0
+          # Build: docker build -t pad-onap/pipeline:1.0.0 -f Dockerfile.pipeline .
+          imagePullPolicy: IfNotPresent
+          command:
+            - python
+            - -m
+            - pipeline.s4_orchestration.orchestrator
+            - --source
+            - http
+            - --max-windows
+            - "0"           # 0 = run indefinitely
+
+          ports:
+            - name: metrics
+              containerPort: 9292
+              protocol: TCP
+
+          envFrom:
+            - configMapRef:
+                name: pad-onap-config
+            - secretRef:
+                name: pad-onap-secrets
+
+          resources:
+            requests:
+              cpu:    "2"
+              memory: "4Gi"
+            limits:
+              cpu:    "4"
+              memory: "8Gi"
+
+          volumeMounts:
+            - name: models
+              mountPath: /app/models_v2
+            - name: data
+              mountPath: /app/data
+
+          livenessProbe:
+            httpGet:
+              path:   /healthz
+              port:   9292
+            initialDelaySeconds: 30
+            periodSeconds:       15
+            failureThreshold:    3
+
+          readinessProbe:
+            httpGet:
+              path:   /readyz
+              port:   9292
+            initialDelaySeconds: 15
+            periodSeconds:       10
+
+      volumes:
+        - name: models
+          persistentVolumeClaim:
+            claimName: pad-onap-models-pvc
+        - name: data
+          emptyDir: {}
+
+---
+# ── Service: expose Prometheus metrics ────────────────────────
+apiVersion: v1
+kind: Service
+metadata:
+  name: pad-onap-metrics
+  namespace: pad-onap
+  labels:
+    app: pad-onap-pipeline
+spec:
+  selector:
+    app: pad-onap-pipeline
+  ports:
+    - name: metrics
+      port: 9292
+      targetPort: 9292
+  type: ClusterIP
+
+---
+# ── ServiceAccount + RBAC ─────────────────────────────────────
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: pad-onap-sa
+  namespace: pad-onap
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: pad-onap-role
+  namespace: pad-onap
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "services", "configmaps"]
+    verbs: ["get", "list", "watch"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: pad-onap-rolebinding
+  namespace: pad-onap
+subjects:
+  - kind: ServiceAccount
+    name: pad-onap-sa
+    namespace: pad-onap
+roleRef:
+  kind: Role
+  name: pad-onap-role
+  apiGroup: rbac.authorization.k8s.io
+
+---
+# ── HorizontalPodAutoscaler (optional, for scale-out) ─────────
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: pad-onap-hpa
+  namespace: pad-onap
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: pad-onap-pipeline
+  minReplicas: 1
+  maxReplicas: 3
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70

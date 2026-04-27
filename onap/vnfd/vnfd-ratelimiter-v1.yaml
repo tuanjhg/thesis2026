@@ -1,0 +1,140 @@
+# VNFD — PAD-ONAP Rate Limiter VNF
+# ETSI SOL001 (TOSCA Simple Profile for NFV) v2.7.1
+# Upload to ONAP SDC → Vendor Software Product → VNF Catalog
+# ──────────────────────────────────────────────────────────────
+tosca_definitions_version: tosca_simple_yaml_1_3
+
+metadata:
+  template_name:    pad-onap-ratelimiter
+  template_version: "1.0.0"
+  template_author:  pad-onap
+  id:               vnfd-ratelimiter-v1
+
+description: >
+  Lightweight token-bucket rate-limiter VNF for DDoS proactive pre-positioning
+  (Tier 2 — PREEMPT). Constrains forwarded traffic to a configurable rate ceiling
+  without dropping connections. Expected boot time: ~500 ms.
+
+imports:
+  - etsi_nfv_sol001_vnfd_types.yaml
+
+node_types:
+  pad.nodes.nfv.VNF.RateLimiter:
+    derived_from: tosca.nodes.nfv.VNF
+    properties:
+      descriptor_id:
+        type: string
+        default: vnfd-ratelimiter-v1
+      provider:
+        type: string
+        default: pad-onap
+      product_name:
+        type: string
+        default: PAD-RateLimiter
+      software_version:
+        type: string
+        default: "1.0.0"
+      vnfd_version:
+        type: string
+        default: "1.0.0"
+      flavour_id:
+        type: string
+        default: default
+      # PAD-specific properties
+      max_rate_mbps:
+        type: integer
+        default: 1000
+        description: Maximum forwarded rate in Mbps
+      burst_mbps:
+        type: integer
+        default: 1200
+        description: Burst allowance in Mbps
+      target_ip:
+        type: string
+        default: "0.0.0.0/0"
+        description: CIDR to rate-limit (default all)
+
+topology_template:
+  node_templates:
+
+    pad-ratelimiter:
+      type: pad.nodes.nfv.VNF.RateLimiter
+      properties:
+        descriptor_id: vnfd-ratelimiter-v1
+        provider: pad-onap
+        product_name: PAD-RateLimiter
+        software_version: "1.0.0"
+        vnfd_version: "1.0.0"
+        flavour_id: default
+
+    # Virtual Compute
+    pad-ratelimiter-vdu:
+      type: tosca.nodes.nfv.Vdu.Compute
+      properties:
+        name: pad-ratelimiter-vdu
+        description: Rate limiter compute unit
+        vdu_profile:
+          min_number_of_instances: 1
+          max_number_of_instances: 3
+      capabilities:
+        virtual_compute:
+          properties:
+            virtual_memory:
+              virtual_mem_size: 2 GB
+            virtual_cpu:
+              num_virtual_cpu: 2
+            virtual_local_storage:
+              - size_of_storage: 10 GB
+
+    # Container image
+    pad-ratelimiter-sw:
+      type: tosca.nodes.nfv.Vdu.OsContainerDeployableUnit
+      properties:
+        name: pad-ratelimiter-container
+        description: Token-bucket rate limiter container
+        nfvi_constraints:
+          - key: kubernetes_namespace
+            value: pad-onap
+      artifacts:
+        sw_image:
+          type: tosca.artifacts.nfv.SwImage
+          properties:
+            name: pad-vnf-ratelimiter
+            version: "1.0"
+            container_format: docker
+            disk_format: raw
+            # In production replace with your registry:
+            image: pad-vnf-ratelimiter:latest
+            # image: registry.example.com/pad-onap/ratelimiter:1.0.0
+      requirements:
+        - virtual_compute: pad-ratelimiter-vdu
+
+    # Health check
+    pad-ratelimiter-health:
+      type: tosca.nodes.nfv.Vdu.OsContainer
+      properties:
+        name: ratelimiter-main
+        requested_additional_capabilities:
+          health_check:
+            requested_additional_capability_name: health_check
+            support_mandatory: true
+            requested_additional_capability_version: "1"
+            target_performance_parameters:
+              http_endpoint: "/health"
+              http_port: "8002"
+              initial_delay_seconds: "2"
+              period_seconds: "3"
+              timeout_seconds: "2"
+              failure_threshold: "3"
+
+  policies:
+    - pad-ratelimiter-scaling:
+        type: tosca.policies.nfv.ScalingAspects
+        properties:
+          aspects:
+            ratelimiter_aspect:
+              name: ratelimiter_aspect
+              description: Scale out under heavy proactive load
+              max_scale_level: 2
+              step_deltas:
+                - delta_1
