@@ -1,0 +1,154 @@
+# ONAP OOM Values Override for PAD-ONAP Integration
+# Usage:
+#   helm install onap oom/kubernetes/onap \
+#     --namespace onap \
+#     --values onap/values-override.yaml
+#
+# This enables only the ONAP components required by PAD-ONAP,
+# minimising resource footprint (target: 64 GB RAM, 16 CPU).
+# Full ONAP HA requires 128+ GB; this profile runs on a single node.
+# ──────────────────────────────────────────────────────────────────
+
+global:
+  # ONAP credentials (match PAD-ONAP secrets)
+  masterPassword: "OOM_PAD_ONAP_2026"
+  addTestingComponents: false
+
+  # Resource profile: small (single-node testbed)
+  flavor: small
+
+  # Internal DNS suffix
+  clusterName: cluster.local
+
+# ── Enable only PAD-ONAP required components ──────────────────────
+so:
+  enabled: true
+  replicaCount: 1
+  resources:
+    requests:
+      memory: "4Gi"
+      cpu: "2"
+    limits:
+      memory: "8Gi"
+      cpu: "4"
+  config:
+    # SO credentials (must match PAD_ONAP_SO_USER/PASS)
+    so_user: so_admin
+    so_password: demo123456!
+
+message-router:
+  enabled: true
+  replicaCount: 1
+  resources:
+    requests:
+      memory: "2Gi"
+      cpu: "1"
+  kafka:
+    replicaCount: 1
+    resources:
+      requests:
+        memory: "2Gi"
+        cpu: "1"
+  zookeeper:
+    replicaCount: 1
+
+policy:
+  enabled: true
+  policy-pap:
+    enabled: true
+    replicaCount: 1
+    resources:
+      requests:
+        memory: "2Gi"
+        cpu: "1"
+  policy-api:
+    enabled: true
+    replicaCount: 1
+  policy-drools-pdp:
+    enabled: true
+    replicaCount: 1
+
+clamp:
+  enabled: true
+  replicaCount: 1
+  resources:
+    requests:
+      memory: "2Gi"
+      cpu: "1"
+
+aai:
+  enabled: true
+  replicaCount: 1
+  resources:
+    requests:
+      memory: "4Gi"
+      cpu: "2"
+
+sdnc:
+  enabled: true
+  replicaCount: 1
+  resources:
+    requests:
+      memory: "4Gi"
+      cpu: "2"
+
+# ── Disable components NOT needed by PAD-ONAP ─────────────────────
+sdc:
+  enabled: false     # Design-time only; use pre-built VNFDs
+
+portal:
+  enabled: false     # No UI needed for automated pipeline
+
+vid:
+  enabled: false
+
+appc:
+  enabled: false
+
+vnfsdk:
+  enabled: false
+
+multicloud:
+  enabled: false     # Using direct K8s, not multicloud adapter
+
+oof:
+  enabled: false
+
+uui:
+  enabled: false
+
+holmes:
+  enabled: false
+
+dcaegen2:
+  enabled: false
+
+cds:
+  enabled: false
+
+# ── Kafka topic pre-creation ───────────────────────────────────────
+# Creates PAD_ONAP_AI_SIGNALS topic on startup
+message-router-kafka:
+  topics:
+    - name: PAD_ONAP_AI_SIGNALS
+      partitions: 3
+      replication: 1
+      retention.ms: 3600000    # 1 hour
+
+# ── Persistent storage (small profile) ────────────────────────────
+cassandra:
+  replicaCount: 1
+  resources:
+    requests:
+      memory: "4Gi"
+      cpu: "2"
+
+mariadb-galera:
+  replicaCount: 1
+  resources:
+    requests:
+      memory: "2Gi"
+
+postgres:
+  service:
+    replicaCount: 1

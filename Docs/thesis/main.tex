@@ -1,90 +1,380 @@
-% !TEX TS-program = pdflatex
-% !TEX encoding = UTF-8 Unicode
-\documentclass[12pt,a4paper,oneside]{report}
-
-% ── Core packages ────────────────────────────────────────────────────────────
-\usepackage[utf8]{inputenc}
-\usepackage[T5,T1]{fontenc}      % T5 for Vietnamese
-\usepackage[vietnamese,english]{babel}
-\usepackage{lmodern}
-\usepackage[a4paper,margin=2.5cm]{geometry}
-\usepackage{setspace}
-\onehalfspacing
-
-% ── Figures, tables, code ────────────────────────────────────────────────────
+% !TeX program = pdflatex
+\documentclass[12pt, a4paper, reqno, oneside]{book}
+\usepackage[left=2.5cm, right=2cm, top=2cm, bottom=2cm]{geometry}
+\usepackage{amsmath,amsxtra,amssymb,latexsym,amscd,amsthm}
+\usepackage{microtype}
+\usepackage{indentfirst}
+\usepackage{color}
+\usepackage{empheq}
+\usepackage[USenglish]{babel}
+\usepackage{amsmath}
+\usepackage[mathscr]{eucal}
+\usepackage{amsfonts}
 \usepackage{graphicx}
-\usepackage{booktabs}
-\usepackage{multirow}
-\usepackage{array}
-\usepackage{longtable}
 \usepackage{float}
-\usepackage{caption}
-\usepackage{subcaption}
 \usepackage{listings}
-\usepackage{xcolor}
+\usepackage[dvipsnames]{xcolor}
+\usepackage{verbatim}
 \usepackage{tikz}
-\usetikzlibrary{shapes.geometric,arrows.meta,positioning,fit,calc}
-
-% ── Math, algorithm ──────────────────────────────────────────────────────────
-\usepackage{amsmath,amssymb,amsthm}
-\usepackage{mathtools}
+\usetikzlibrary{calc,positioning,shapes.geometric,arrows.meta,fit}
+\usepackage{float}
+\usepackage{array}
+\usepackage{multirow}
 \usepackage{algorithm}
 \usepackage{algpseudocode}
+\usepackage{subfigure}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.18}
+\usepackage{titlesec}
+\usepackage{fancyhdr}
+\usepackage{rotating}
+\usepackage{longtable}
+\usepackage{supertabular}
+\fancyhf{}
+\fancyhead[LO,RE]{\small{\leftmark}}
+\fancyfoot[C]{\thepage}
+\usepackage{ulem}
+\usepackage{pdfpages}
+\usepackage[square,numbers]{natbib}
+\usepackage{subcaption,booktabs}
+\usepackage{chngcntr}
+\usepackage{tabularray}
+\usepackage{tabularx}
+\usepackage[labelfont=bf, textfont=it, justification=centering]{caption}
+\captionsetup{labelfont={color=blue, bf}, textfont={color=black, it}}
+\renewcommand{\labelitemi}{+}
+\hyphenation{op-tical net-works semi-conduc-tor}
+\usepackage[hyphens,spaces,obeyspaces]{url}
+\usepackage[colorlinks,bookmarksopen,bookmarksnumbered,
+            citecolor=blue,colorlinks=true,
+            linkcolor=blue,urlcolor=blue]{hyperref}
 
-% ── Referencing ──────────────────────────────────────────────────────────────
-\usepackage[hidelinks,colorlinks=false]{hyperref}
-\usepackage{cleveref}
-\usepackage[round]{natbib}
-\bibliographystyle{plainnat}
+\renewcommand{\baselinestretch}{1.25}
 
-% ── Theorems ─────────────────────────────────────────────────────────────────
-\newtheorem{definition}{Definition}[chapter]
-\newtheorem{assumption}{Assumption}[chapter]
-\newtheorem{invariant}{Invariant}[chapter]
-\newtheorem{theorem}{Theorem}[chapter]
+%─── unnumbered chapter/section helpers (matches template) ─────────────
+\newcommand\chap[1]{%
+  \chapter*{#1}%
+  \addcontentsline{toc}{chapter}{#1}%
+  \markboth{#1}{}}
+\newcommand\sect[1]{%
+  \section*{#1}%
+  \addcontentsline{toc}{section}{#1}}
 
-% ── Listings style for Python / JSON ─────────────────────────────────────────
-\lstset{
-  basicstyle=\footnotesize\ttfamily,
-  keywordstyle=\color{blue!70!black}\bfseries,
-  stringstyle=\color{red!60!black},
-  commentstyle=\color{gray},
-  numbers=left,numberstyle=\tiny\color{gray},
-  frame=single,framerule=0.3pt,
-  breaklines=true,tabsize=2,
+%─── counter formatting ────────────────────────────────────────────────
+\counterwithin{algorithm}{chapter}
+\renewcommand{\thealgorithm}{\thechapter.\arabic{algorithm}}
+\renewcommand{\theequation}{\arabic{chapter}.\arabic{equation}}
+
+%─── theorem environments ─────────────────────────────────────────────
+\newtheorem{lemma}{\bf Lemma}[chapter]
+\newtheorem{theorem}{\bf Theorem}[chapter]
+\newtheorem{proposition}{\bf Proposition}[chapter]
+\newtheorem{corollary}{\bf Corollary}[chapter]
+\newtheorem{definition}{\bf Definition}[chapter]
+\newtheorem{remark}{\bf Remark}[section]
+\newtheorem{assumption}{\bf Assumption}[chapter]
+\newtheorem{invariant}{\bf Invariant}[chapter]
+
+%─── project-specific macros ──────────────────────────────────────────
+\newcommand{\padonap}{\textsc{PAD-ONAP}}
+\newcommand{\tier}[1]{$T_{#1}$}
+
+%─── subsubsubsection support ─────────────────────────────────────────
+\titleclass{\subsubsubsection}{straight}[\subsection]
+\newcounter{subsubsubsection}[subsubsection]
+\renewcommand\thesubsubsubsection{\thesubsubsection.\arabic{subsubsubsection}}
+\renewcommand\theparagraph{\thesubsubsubsection.\arabic{paragraph}}
+\titleformat{\subsubsubsection}
+  {\normalfont\normalsize\bfseries}{\thesubsubsubsection}{1em}{}
+\titlespacing*{\subsubsubsection}{0pt}{3.25ex plus 1ex minus .2ex}{1.5ex plus .2ex}
+\makeatletter
+\renewcommand\paragraph{\@startsection{paragraph}{5}{\z@}%
+  {3.25ex \@plus1ex \@minus.2ex}{-1em}{\normalfont\normalsize\bfseries}}
+\renewcommand\subparagraph{\@startsection{subparagraph}{6}{\parindent}%
+  {3.25ex \@plus1ex \@minus .2ex}{-1em}{\normalfont\normalsize\bfseries}}
+\def\toclevel@subsubsubsection{4}
+\def\toclevel@paragraph{5}
+\def\l@subsubsubsection{\@dottedtocline{4}{7em}{4em}}
+\def\l@paragraph{\@dottedtocline{5}{10em}{5em}}
+\def\l@subparagraph{\@dottedtocline{6}{14em}{6em}}
+\makeatother
+\setcounter{secnumdepth}{4}
+\setcounter{tocdepth}{4}
+
+%─── graphics path ────────────────────────────────────────────────────
+\graphicspath{{./figs/}}
+
+%─── listing styles ───────────────────────────────────────────────────
+\definecolor{mygreen}{rgb}{0,0.6,0}
+\definecolor{mygray}{rgb}{0.5,0.5,0.5}
+\definecolor{mymauve}{rgb}{0.58,0,0.82}
+
+\lstdefinestyle{custompython}{
+  belowcaptionskip=1\baselineskip,
+  breaklines=true, frame=single,
+  xleftmargin=\parindent,
+  language=Python,
   showstringspaces=false,
+  basicstyle=\footnotesize\ttfamily,
+  keywordstyle=\bfseries\color{green!40!black},
+  commentstyle=\itshape\color{purple!40!black},
+  identifierstyle=\color{blue},
+  stringstyle=\color{orange},
+  numbers=left, numberstyle=\tiny\color{gray}, stepnumber=1,
 }
 
-% ── Custom commands ──────────────────────────────────────────────────────────
-\newcommand{\padonap}{\textsc{PAD-ONAP}}
-\newcommand{\tier}[1]{\textsf{T#1}}
+\definecolor{eclipseStrings}{RGB}{42,0,255}
+\definecolor{eclipseKeywords}{RGB}{127,0,85}
+\colorlet{numb}{magenta!60!black}
+\lstdefinelanguage{json}{
+  basicstyle=\normalfont\ttfamily,
+  commentstyle=\color{eclipseStrings},
+  stringstyle=\color{eclipseKeywords},
+  numbers=left, numberstyle=\scriptsize, stepnumber=1, numbersep=8pt,
+  showstringspaces=false, breaklines=true, frame=lines,
+  string=[s]{"}{"},
+  comment=[l]{:\ "}, morecomment=[l]{:"},
+  literate=*{0}{{\color{numb}0}}{1}{1}{{\color{numb}1}}{1}
+            {2}{{\color{numb}2}}{1}{3}{{\color{numb}3}}{1}
+            {4}{{\color{numb}4}}{1}{5}{{\color{numb}5}}{1}
+            {6}{{\color{numb}6}}{1}{7}{{\color{numb}7}}{1}
+            {8}{{\color{numb}8}}{1}{9}{{\color{numb}9}}{1},
+}
+\lstset{style=custompython}
 
-\title{\Huge\bfseries AI-Augmented NFV Orchestration for Proactive DDoS Mitigation
-in Data Center Networks}
-\author{Nguyễn Anh Tuấn}
-\date{\today}
+\newcolumntype{C}[1]{>{\centering\arraybackslash}p{#1}}
+\definecolor{processblue}{cmyk}{0.96,0,0,0}
 
-% ── Document ─────────────────────────────────────────────────────────────────
+%─────────────────────────────────────────────────────────────────────
 \begin{document}
-\selectlanguage{english}
+\hypersetup{pageanchor=false}
 
-\pagenumbering{roman}
-\maketitle
-\input{chapters/abstract}
+%══════════════════════════════════════════════════════════════════════
+%  TITLE PAGE 1
+%══════════════════════════════════════════════════════════════════════
+\begin{titlepage}
+\begin{center}
+  \begin{tikzpicture}[overlay,remember picture]
+    \draw[line width=3pt,rounded corners=0pt]
+      ($(current page.north west)+(20mm,-20mm)$)
+      rectangle
+      ($(current page.south east)+(-15mm,20mm)$);
+    \draw[line width=1pt,rounded corners=0pt]
+      ($(current page.north west)+(21.5mm,-21.5mm)$)
+      rectangle
+      ($(current page.south east)+(-16.5mm,21.5mm)$);
+  \end{tikzpicture}
+  \\[1mm]
+  \centerline{\bf VIETNAM NATIONAL UNIVERSITY HANOI}
+  \centerline{\bf UNIVERSITY OF ENGINEERING AND TECHNOLOGY}
+  \vspace*{1.8cm}
+  \begin{figure}[H]
+    \centering
+    \includegraphics[width=0.23\linewidth]{figs/uet.jpg}
+  \end{figure}
+  \vspace*{1cm}
+  \centerline{\bf NGUYEN ANH TUAN}
+  \vspace*{2.5cm}
+  \centerline{\bf AI-AUGMENTED NFV ORCHESTRATION FOR}
+  \centerline{\bf PROACTIVE DDOS MITIGATION IN DATA CENTER NETWORKS}
+  \vspace*{2.5cm}
+  \centerline{\bf GRADUATION THESIS}
+  \vspace*{0.2cm}
+  \centerline{\bf Major: Computer Networks and Data Communication}
+  \vfill
+  \centerline{\bf Hanoi -- 2026}
+  \vspace{13pt}
+\end{center}
+\end{titlepage}
+
+\newpage
+
+%══════════════════════════════════════════════════════════════════════
+%  TITLE PAGE 2 (with supervisor)
+%══════════════════════════════════════════════════════════════════════
+\begin{titlepage}
+\begin{center}
+  \begin{tikzpicture}[overlay,remember picture]
+    \draw[line width=3pt,rounded corners=0pt]
+      ($(current page.north west)+(20mm,-20mm)$)
+      rectangle
+      ($(current page.south east)+(-15mm,20mm)$);
+    \draw[line width=1pt,rounded corners=0pt]
+      ($(current page.north west)+(21.5mm,-21.5mm)$)
+      rectangle
+      ($(current page.south east)+(-16.5mm,21.5mm)$);
+  \end{tikzpicture}
+  \\[1mm]
+  \centerline{\bf VIETNAM NATIONAL UNIVERSITY HANOI}
+  \centerline{\bf UNIVERSITY OF ENGINEERING AND TECHNOLOGY}
+  \vspace*{1.8cm}
+  \begin{figure}[H]
+    \centering
+    \includegraphics[width=0.23\linewidth]{figs/uet.jpg}
+  \end{figure}
+  \vspace*{0.9cm}
+  \centerline{\bf NGUYEN ANH TUAN}
+  \vspace*{2.2cm}
+  \centerline{\bf AI-AUGMENTED NFV ORCHESTRATION FOR}
+  \centerline{\bf PROACTIVE DDOS MITIGATION IN DATA CENTER NETWORKS}
+  \vspace*{1.7cm}
+  \centerline{\bf Major: COMPUTER NETWORKS AND DATA COMMUNICATION}
+  \vspace*{1.6cm}
+  \centerline{\bf Supervisor:}
+  \centerline{\bf [Supervisor Name and Title]}
+  \vfill
+  \centerline{\bf Hanoi -- 2026}
+  \vspace{13pt}
+\end{center}
+\end{titlepage}
+
+\newpage
+\pagenumbering{gobble}
+
+%══════════════════════════════════════════════════════════════════════
+%  ACKNOWLEDGEMENTS
+%══════════════════════════════════════════════════════════════════════
+\chapter*{Acknowledgements}
+\vspace{20pt}
+
+I would like to express my sincere gratitude to my supervisor for the invaluable guidance, feedback, and encouragement provided throughout the course of this research. Their expertise in network security and AI-driven systems was instrumental in shaping both the direction and quality of this thesis.
+
+I am also grateful to the faculty members of the Department of Computer Networks and Data Communication at the University of Engineering and Technology for their support and for the strong academic foundation they provided.
+
+I acknowledge that this work may still have room for improvement, and I welcome any constructive feedback that could further strengthen the research in future iterations.
+
+Sincere gratitude!
+
+\newpage
+
+%══════════════════════════════════════════════════════════════════════
+%  AUTHORSHIP
+%══════════════════════════════════════════════════════════════════════
+\chapter*{Authorship}
+\vspace{20pt}
+
+I declare that this thesis is my original work, conducted under the supervision of my academic advisor at the University of Engineering and Technology, Vietnam National University Hanoi. This work has not been submitted for any other degree or professional qualification.
+
+All references and related works used in this thesis have been appropriately acknowledged and cited. The experimental data reported in this thesis has been obtained through original implementation and testing of the \textsc{PAD-ONAP} system, and all quantitative results have been directly measured from the implemented prototype.
+
+I affirm that this declaration is made with full integrity and in accordance with the institution's academic policies.
+
+\begin{flushright}
+{\it Author}\\[2cm]
+{\bf Nguyen Anh Tuan}
+\end{flushright}
+\newpage
+
+%══════════════════════════════════════════════════════════════════════
+%  SUPERVISOR'S APPROVAL
+%══════════════════════════════════════════════════════════════════════
+\chapter*{Supervisor's Approval}
+\vspace{20pt}
+
+I hereby approve that the thesis in its current form is ready for committee examination as a requirement for the Engineer of Computer Networks and Data Communication degree at the VNU University of Engineering and Technology.
+
+All references from relevant studies are explicitly sourced from the list of references in the thesis. The thesis does not copy documents or research works of others without specifying the references.
+
+\begin{flushright}
+{\it Signature}\\[2cm]
+{\bf [Supervisor Name]}
+\end{flushright}
+
+\newpage
+
+%══════════════════════════════════════════════════════════════════════
+%  ABSTRACT
+%══════════════════════════════════════════════════════════════════════
+\centerline{\bf AI-AUGMENTED NFV ORCHESTRATION FOR}
+\centerline{\bf PROACTIVE DDOS MITIGATION IN DATA CENTER NETWORKS}
+\vspace{10pt}
+\centerline{Nguyen Anh Tuan}
+\vspace{2cm}
+{\bf Abstract}
+\vspace{5pt}
+
+Distributed Denial-of-Service (DDoS) attacks against multi-tenant data-center networks continue to grow in both volume and sophistication, yet prevailing mitigation architectures remain fundamentally reactive: a mitigation Virtual Network Function (VNF) is instantiated only after the attack traffic has crossed a static threshold, imposing a hard latency floor equal to the VNF boot time---approximately six seconds for a full scrubber---during which the attack proceeds unchecked.
+
+This thesis proposes \textsc{PAD-ONAP} (\textit{Proactive Attack Defense over ONAP}), an AI-augmented Network Function Virtualization (NFV) orchestration pipeline that embeds multi-horizon machine-learning forecasting into an ONAP-compliant closed control loop. The system integrates four operational stages: a gNMI/NetFlow telemetry collector (S1), a 17-feature entropy and rate extractor (S2), a dual-track AI engine comprising an XGBoost seven-class detector and a Transformer--LSTM four-horizon forecaster ($t{+}30, 60, 90, 120$~seconds) (S3), and a five-tier graduated orchestration layer with a linear-programming multi-tenant SLA allocator and ONAP SO/CLAMP/Policy lifecycle management (S4). A canonical \texttt{AIOutputPayload} JSON schema published on DMaaP decouples the AI and orchestration layers, enabling independent evolution of each component.
+
+Evaluated on CICDDoS2019 under a strict temporal 80/20 train--test split, the XGBoost detector achieves 98.25\% accuracy, 96.42\% macro-F1, and 99.58\% macro AUC; the Transformer--LSTM forecaster attains AUC values ranging from 0.988 at $t{+}30$~s to 0.971 at $t{+}120$~s, exhibiting the monotonic horizon-degradation characteristic of a well-calibrated forecaster. On an eight-scenario orchestration benchmark, \textsc{PAD-ONAP} passes all 8/8 scenarios while a rule-based threshold baseline fails 2/8 on out-of-distribution traffic through over-escalation. Proactive pre-positioning at Tier~2 completes in 505~ms compared with 6,006~ms for reactive Tier~3 mitigation---a 10.9$\times$ speed-up---and the AI forecast pre-positions up to 135~seconds before the reactive path triggers. On gradual ramp attacks, the system demonstrates a 65-second lead-time advantage over the threshold baseline. Under all tested scenarios, tenant SLA floors (URLLC: 150~Mbps) are preserved by the LP allocator.
+
+To the best of our knowledge, \textsc{PAD-ONAP} is the first system to simultaneously combine ML-based multi-horizon DDoS forecasting, ONAP-compliant VNF lifecycle management, and LP-guaranteed multi-tenant SLA allocation within a single closed-loop orchestration pipeline.
+
+\vspace{1em}
+\noindent\textbf{Keywords:} DDoS mitigation; NFV orchestration; ONAP; proactive defense; multi-horizon forecasting; XGBoost; Transformer--LSTM; SLA guarantee; data-center networks.
+
+\newpage
+
+%══════════════════════════════════════════════════════════════════════
+%  TABLE OF CONTENTS / FIGURES / TABLES
+%══════════════════════════════════════════════════════════════════════
 \tableofcontents
+\newpage
 \listoffigures
+\newpage
 \listoftables
+\begingroup
+\listofalgorithms
+\let\clearpage\relax
+\endgroup
 
-\clearpage
-\pagenumbering{arabic}
+\newpage
 
+%══════════════════════════════════════════════════════════════════════
+%  LIST OF ABBREVIATIONS
+%══════════════════════════════════════════════════════════════════════
+\chapter*{List of Abbreviations}
+\vspace{20pt}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{|m{2.5cm}|m{9cm}|}
+\hline
+\textbf{Abbreviation} & \textbf{Full Form} \\ \hline
+AI    & Artificial Intelligence \\ \hline
+AUC   & Area Under the ROC Curve \\ \hline
+CLAMP & Closed Loop Automation Management Platform \\ \hline
+DCN   & Data Center Network \\ \hline
+DDoS  & Distributed Denial-of-Service \\ \hline
+DMaaP & Data Management as a Platform (ONAP message bus) \\ \hline
+DL    & Deep Learning \\ \hline
+FGSM  & Fast Gradient Sign Method \\ \hline
+gNMI  & gRPC Network Management Interface \\ \hline
+LP    & Linear Program / Linear Programming \\ \hline
+LSTM  & Long Short-Term Memory \\ \hline
+MANO  & Management and Orchestration \\ \hline
+ML    & Machine Learning \\ \hline
+NFV   & Network Function Virtualization \\ \hline
+ONAP  & Open Network Automation Platform \\ \hline
+OOD   & Out-of-Distribution \\ \hline
+SFC   & Service Function Chaining \\ \hline
+SHAP  & SHapley Additive exPlanations \\ \hline
+SLA   & Service Level Agreement \\ \hline
+SO    & Service Orchestrator (ONAP component) \\ \hline
+URLLC & Ultra-Reliable Low-Latency Communication \\ \hline
+VNF   & Virtual Network Function \\ \hline
+XGB   & XGBoost (eXtreme Gradient Boosting) \\ \hline
+\end{tabular}
+\end{table}
+
+%══════════════════════════════════════════════════════════════════════
+%  CHAPTERS
+%══════════════════════════════════════════════════════════════════════
 \input{chapters/ch01_intro}
 \input{chapters/ch02_background}
-\input{chapters/ch03_architecture}
-\input{chapters/ch04_ai}
-\input{chapters/ch05_evaluation}
-\input{chapters/ch06_conclusion}
+\input{chapters/ch03_related}
+\input{chapters/ch04_system}
+\input{chapters/ch05_ai}
+\input{chapters/ch06_evaluation}
+\input{chapters/ch07_conclusion}
 
+%══════════════════════════════════════════════════════════════════════
+%  BIBLIOGRAPHY
+%══════════════════════════════════════════════════════════════════════
+\newpage
+\addcontentsline{toc}{chapter}{Bibliography}
+\bibliographystyle{ieeetr}
 \bibliography{references}
 
 \end{document}

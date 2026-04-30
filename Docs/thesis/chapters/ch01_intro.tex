@@ -1,102 +1,202 @@
-\chapter{Introduction}
+%══════════════════════════════════════════════════════════════════════
+%  CHAPTER 1 — Introduction  (unnumbered per template)
+%══════════════════════════════════════════════════════════════════════
+\chap{Introduction}
 \label{ch:intro}
 
-\section{Motivation}
-\label{sec:motivation}
+\pagestyle{fancy}
 
-Distributed Denial-of-Service (DDoS) attacks have grown in both volume and
-diversity. Recent industry reports record multi-terabit-per-second volumetric
-floods and simultaneously show a rise in application-layer
-and low-rate attacks that evade simple rate thresholds. In modern
-cloud data-center networks (DCNs) these attacks threaten not only single
-victims but also co-tenants sharing the physical substrate: a volumetric
-surge against one tenant can saturate fat-tree aggregation or core links
-and violate the service-level agreements (SLAs) of neighbouring tenants.
+%%─────────────────────────────────────────────────────────────────────
+\sect{Motivation}
+%%─────────────────────────────────────────────────────────────────────
 
-The dominant defensive posture today is \emph{reactive}: detection rules
-fire only after the offending feature --- typically packet rate or SYN
-ratio --- crosses a static threshold, at which point the control-plane
-instantiates a mitigation Virtual Network Function (VNF). The latency of
-this loop is dominated by VNF boot time. In our measurements the reactive
-path required approximately \(6{,}006\) ms end-to-end; during this window
-the attack proceeds unchecked.
+Distributed Denial-of-Service (DDoS) attacks continue to grow in both
+volume and sophistication. Industry reports record multi-terabit-per-second
+volumetric floods alongside a rising tide of application-layer and
+low-rate attacks that evade simple rate thresholds. In modern cloud
+data-center networks (DCNs), such attacks threaten not only a single
+victim tenant but also every co-tenant sharing the physical substrate:
+a volumetric surge against one tenant can saturate aggregation and core
+links in the fat-tree topology, triggering service-level agreement (SLA)
+violations across the entire multi-tenant environment.
 
-This latency is not a property of any specific orchestrator --- it is
-structural. Reducing it requires acting \emph{before} the attack crosses
-the reactive trigger, which in turn requires a forecast.
+The dominant defensive posture today is \emph{reactive}: a detection rule
+fires only after an offending feature---typically packet rate or SYN
+ratio---crosses a static threshold, and only then does the control plane
+instantiate a mitigation Virtual Network Function (VNF). The end-to-end
+latency of this response loop is dominated by VNF boot time. Measurements
+on the PAD-ONAP prototype confirm this floor at approximately 6{,}006~ms
+for a full traffic scrubber; during that window the attack proceeds
+unchecked. This latency is not a deficiency of any particular
+orchestrator---it is \emph{structural}. Lowering it requires acting
+\emph{before} the attack crosses the reactive trigger, which in turn
+requires a forecaster.
 
-\section{Problem statement}
-\label{sec:problem}
+At the same time, purely threshold-based detection is brittle in the face
+of out-of-distribution (OOD) traffic. An HTTP flood or an ICMP burst whose
+feature vector falls in an unexpected region of the threshold space may
+cause a rule-based system to over-escalate---instantiating an expensive
+scrubber VNF unnecessarily and degrading benign tenant throughput. An
+AI-trained classifier, by contrast, can assign calibrated probabilities
+and degrade gracefully on unseen patterns. These two motivating gaps---the
+reactive latency floor and the OOD brittleness of threshold rules---frame
+the research problem addressed in this thesis.
 
-We target the orchestrator of a multi-tenant DCN whose east-west and
-north-south traffic is monitored via gNMI and NetFlow, whose mitigation
-capacity is expressed as instantiable VNFs under an ONAP MANO control
-plane, and whose tenants hold differentiated SLAs (e.g. URLLC with
-guaranteed floor, eMBB best-effort, mMTC elastic). The defender must decide,
+%%─────────────────────────────────────────────────────────────────────
+\sect{Research Challenges and Research Problem}
+%%─────────────────────────────────────────────────────────────────────
+
+We consider the orchestrator of a multi-tenant DCN whose east--west and
+north--south traffic is monitored via gNMI and NetFlow, whose mitigation
+capacity is expressed as instantiable VNFs under an ONAP MANO control plane,
+and whose tenants hold differentiated SLAs (e.g.~URLLC with a guaranteed
+bandwidth floor, eMBB best-effort, mMTC elastic). The defender must decide,
 for every 5-second telemetry window, \emph{which} tier of mitigation to
-apply --- ranging from do-nothing to heavy scrubbing --- so as to minimise
-attack impact while preserving benign-tenant SLAs and keeping false-positive
+apply---ranging from no action to heavy scrubbing---so as to minimise attack
+impact while preserving benign-tenant SLAs and keeping false-positive
 actuation bounded.
 
-Existing systems either (i) detect but do not orchestrate, (ii) orchestrate
-reactively without forecasting, or (iii) forecast but do not integrate with
-a standards-compliant MANO stack nor with a multi-tenant SLA model.
+Three concrete challenges arise:
 
-\section{Research questions and hypotheses}
-\label{sec:rq}
+\begin{enumerate}
+  \item \textbf{Reactive latency floor.} The minimum time to respond equals
+        the VNF boot time ($\approx 6$~s for a scrubber). No amount of
+        orchestration tuning can reduce this; only pre-positioning the VNF
+        \emph{before} the attack peaks can.
 
-We formalise the scope of this thesis through three research questions
-and three testable hypotheses.
+  \item \textbf{OOD over-escalation.} Threshold rules with fixed coefficients
+        fire on any feature pattern that crosses the threshold, regardless of
+        whether the pattern belongs to a known attack class. This causes
+        unnecessary VNF actuation on novel traffic.
+
+  \item \textbf{SLA collision under mitigation.} Instantiating a VNF consumes
+        link capacity, which can undercut a co-tenant's SLA floor if bandwidth
+        is not re-allocated explicitly.
+\end{enumerate}
+
+Existing systems address at most two of these challenges simultaneously.
+Systems that detect but do not orchestrate leave challenge~1 open; purely
+reactive orchestrators leave challenge~1 open; forecasters that do not
+integrate with a standards-compliant MANO stack cannot enforce challenge~3.
+No published system combines multi-horizon forecasting, ONAP-compliant VNF
+lifecycle management, and an LP-guaranteed multi-tenant SLA allocation in
+a single closed-loop pipeline.
+
+We formalise the scope through three research questions and three testable
+hypotheses.
+
+\medskip
+\noindent\textit{Research Questions:}
 
 \begin{itemize}
   \item \textbf{RQ1 (Lead-time).} Does an ML forecaster reduce end-to-end
-        mitigation latency compared with a rule-based threshold baseline
-        at a controlled false-positive rate?
-  \item \textbf{RQ2 (SLA).} Does a graduated five-tier policy engine
-        preserve tenant SLAs under active mitigation?
-  \item \textbf{RQ3 (Safety).} Is pre-positioning at tier \tier{2} safe ---
-        i.e. does it not degrade benign tenants below their SLA floor, and
-        can it be rolled back within bounded time?
+        mitigation latency compared with a rule-based threshold baseline at
+        a controlled false-positive rate?
+  \item \textbf{RQ2 (SLA preservation).} Does a graduated five-tier policy
+        engine preserve per-tenant SLAs under active mitigation?
+  \item \textbf{RQ3 (Safety).} Is proactive pre-positioning at \tier{2}
+        safe---does it not degrade benign tenants below their SLA floor,
+        and can it be rolled back within a bounded number of windows?
 \end{itemize}
+
+\medskip
+\noindent\textit{Hypotheses:}
 
 \begin{itemize}
-  \item \textbf{H1.} On gradual attacks (SYN-ramp), the ML forecaster
-        triggers mitigation \(\geq 30\) s earlier than the threshold
-        baseline.
-  \item \textbf{H2.} Binary detection accuracy \(\geq 98\%\) and AUC
-        \(\geq 0.99\) under a temporal 80/20 train/test split with no
-        shuffling.
-  \item \textbf{H3.} Under all eight evaluation scenarios the URLLC
-        bandwidth floor of 150 Mbps is preserved at every tier.
+  \item \textbf{H1.} On gradual-ramp attacks (SYN ramp), the ML forecaster
+        triggers mitigation at least 30 seconds earlier than a rule-based
+        threshold baseline.
+  \item \textbf{H2.} Binary detection accuracy $\geq 0.98$ and macro AUC
+        $\geq 0.99$ are achievable under a strict temporal 80/20 train--test
+        split with no data shuffling.
+  \item \textbf{H3.} Under all eight evaluation scenarios the URLLC bandwidth
+        floor of 150~Mbps is preserved at every mitigation tier.
 \end{itemize}
 
-\section{Contributions}
-\label{sec:contrib}
+%%─────────────────────────────────────────────────────────────────────
+\sect{Objective and Contents}
+%%─────────────────────────────────────────────────────────────────────
+
+The objective of this thesis is to design, implement, and empirically evaluate
+\padonap{} (\textit{Proactive Attack Defense over ONAP}), an AI-augmented
+NFV orchestration pipeline that satisfies the following requirements:
+
+\begin{itemize}
+  \item \textbf{Proactive response.} The system shall pre-position
+        mitigation VNFs based on a multi-horizon ML forecast before the
+        attack reaches the detection threshold.
+  \item \textbf{ONAP compliance.} All VNF lifecycle operations shall be
+        issued through the ONAP SO v7 REST API; the AI and orchestration
+        layers shall be decoupled via a canonical JSON schema on the DMaaP
+        message bus.
+  \item \textbf{SLA guarantee.} A linear-programming allocator shall
+        guarantee per-tenant bandwidth floors under any active mitigation tier.
+  \item \textbf{OOD robustness.} The system shall degrade gracefully
+        (under-respond rather than over-escalate) on traffic distributions
+        absent from the training set.
+\end{itemize}
+
+%%─────────────────────────────────────────────────────────────────────
+\sect{Contribution Highlights}
+%%─────────────────────────────────────────────────────────────────────
+
+This thesis makes four technical contributions:
 
 \begin{enumerate}
-  \item An \emph{AI-augmented four-tier architecture} (S1: telemetry;
-        S2: features; S3: AI inference; S4: orchestration) that plugs a
-        proactive forecast output into an ONAP closed loop.
-  \item A \emph{multi-horizon DDoS forecaster} (Transformer+LSTM,
-        \(t{+}30,60,90,120\) s) whose AUC degradation curve is consistent
-        with the physical forecast-horizon trade-off.
-  \item A \emph{linear-programming multi-tenant SLA allocator} that
-        guarantees URLLC floors under VNF overhead up to 700 Mbps.
-  \item A \emph{quantitative comparison} against a rule-based threshold
-        baseline showing a 65 s lead-time advantage on gradual attacks
-        and an out-of-distribution (OOD) robustness advantage (baseline
-        FAIL on S4/S5; \padonap{} PASS).
+  \item \textbf{A four-stage AI-augmented architecture} (\texttt{pipeline/})
+        comprising a gNMI/NetFlow telemetry collector (S1), a 17-feature
+        entropy and rate extractor (S2), a dual-track AI inference layer
+        (S3), and a five-tier graduated orchestration layer with ONAP
+        lifecycle management (S4). A canonical \texttt{AIOutputPayload}
+        JSON schema published on DMaaP decouples the AI and orchestration
+        layers, enabling independent evolution of each component.
+
+  \item \textbf{A Transformer+LSTM multi-horizon DDoS forecaster} producing
+        attack-probability estimates at $t{+}30, 60, 90, 120$ seconds. The
+        AUC degrades monotonically from 0.988 at $t{+}30$~s to 0.971 at
+        $t{+}120$~s, consistent with the information-decay expected in
+        forecasting and indicative of a well-calibrated model.
+
+  \item \textbf{A linear-programming multi-tenant SLA allocator}
+        (\texttt{sla\_allocator.py}) that, at every tier transition, solves a
+        bounded LP to guarantee per-tenant bandwidth floors. The URLLC floor
+        of 150~Mbps is preserved in all eight evaluation scenarios.
+
+  \item \textbf{A quantitative comparison against a rule-based baseline}
+        showing an 8/8 vs 6/8 scenario pass rate, a 65-second lead-time
+        advantage on gradual-ramp attacks, and a $10.9\times$ proactive
+        latency speed-up (505~ms vs 6{,}006~ms).
 \end{enumerate}
 
-\section{Thesis outline}
-The remainder of the thesis is structured as follows.
-Chapter~\ref{ch:background} surveys DDoS defense, NFV/ONAP, and ML for
-network security, and positions \padonap{} against related work.
-Chapter~\ref{ch:architecture} presents the proposed architecture, its
-threat model, and the safety invariants.
-Chapter~\ref{ch:ai} details the AI components --- feature engineering,
-XGBoost detection, Transformer--LSTM forecasting, validation, and
-interpretability.
-Chapter~\ref{ch:eval} reports the experimental evaluation against the
-threshold baseline, lead-time analysis, and SLA behaviour.
-Chapter~\ref{ch:conclusion} concludes and outlines future work.
+%%─────────────────────────────────────────────────────────────────────
+\sect{Thesis Outline}
+%%─────────────────────────────────────────────────────────────────────
+
+The remainder of the thesis is organised as follows.
+
+Chapter~\ref{ch:background} surveys the technical foundations: DDoS attack
+taxonomy in DCNs, NFV and Service Function Chaining, the ONAP MANO
+architecture, machine-learning models for network security, forecasting
+methodologies, and fat-tree DCN topology.
+
+Chapter~\ref{ch:related} reviews related work, positions \padonap{} against
+eight recent systems on a six-axis comparison matrix, and identifies the
+three research gaps that motivate this work.
+
+Chapter~\ref{ch:system} presents the \padonap{} architecture in full detail:
+system overview, formal threat model, safety invariants, five-tier policy
+state machine, LP SLA allocator formulation, and the AIOutputPayload
+interface contract.
+
+Chapter~\ref{ch:ai} details the AI components: the 17-feature vector, the
+XGBoost 7-class detector (Acc = 0.9825, Macro-AUC = 0.9958), the
+Transformer+LSTM 4-horizon forecaster, three cross-validation strategies,
+FGSM adversarial augmentation, and SHAP interpretability.
+
+Chapter~\ref{ch:eval} reports the full experimental evaluation: the eight
+orchestration scenarios, the rule-based threshold baseline comparison,
+lead-time analysis, SLA fairness verification, and a state-of-the-art
+comparison.
+
+The Conclusion summarises the contributions, confirms the three hypotheses,
+and outlines five directions for future work.

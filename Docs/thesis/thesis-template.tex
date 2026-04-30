@@ -1,0 +1,802 @@
+\documentclass[12pt, a4paper, reqno, oneside]{book}
+\usepackage[left=2.5cm, right=2cm, top=2cm, bottom=2cm]{geometry}
+\usepackage{amsmath,amsxtra,amssymb,latexsym, amscd,amsthm}
+\usepackage{microtype}
+\usepackage{indentfirst}
+\usepackage{color}
+\usepackage{empheq}
+\usepackage[USenglish]{babel}
+\usepackage{amsmath}
+\usepackage[mathscr]{eucal}
+\usepackage{amsfonts}
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{listings}
+\usepackage[dvipsnames]{xcolor}
+\usepackage{verbatim}
+\usepackage{tikz}
+\usetikzlibrary{calc}
+\usepackage{tkz-graph}
+\usetikzlibrary {positioning}
+\usepackage{float}
+\usepackage{array}
+\usepackage{multirow}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{subfigure}
+\usepackage{pgfplots}
+\usepackage{titlesec}
+\usepackage{fancyhdr}
+\usepackage{rotating}
+\usepackage{longtable}
+\usepackage{supertabular}
+\fancyhf{}
+\fancyhead[LO,RE]{\small{\leftmark}}
+\fancyfoot[C]{ \thepage}
+\usepackage{ulem}
+\usepackage{pdfpages}
+\usepackage{niceframe}
+\usepackage[square,numbers]{natbib}
+\usepackage{subcaption,booktabs}
+\usepackage{chngcntr}
+\usepackage{tabularray}
+\usepackage[labelfont=bf, textfont=it, justification=centering]{caption}
+\captionsetup{labelfont={color=blue, bf}, textfont={color=black, it}}
+\renewcommand{\labelitemi}{+}
+\hyphenation{op-tical net-works semi-conduc-tor}
+\usepackage[hyphens,spaces,obeyspaces]{url}
+\usepackage[colorlinks,bookmarksopen,bookmarksnumbered,citecolor=blue, colorlinks=true,linkcolor=blue,urlcolor=blue]{hyperref}
+
+\renewcommand{\baselinestretch}{1.25}
+
+\newcommand \chap[1]{%
+  \chapter*{#1}%
+  \addcontentsline{toc}{chapter}{#1}
+  \markboth{#1}{}
+}
+\newcommand \sect[1]{%
+  \section*{#1}%
+  \addcontentsline{toc}{section}{#1}}
+  
+
+\counterwithin{algorithm}{chapter}
+\renewcommand{\thealgorithm}{\thechapter.\arabic{algorithm}}
+\renewcommand{\theequation}{\arabic{chapter}.\arabic{equation}} %\arabic{section}.
+\newtheorem{lemma}{\bf Bổ đề}[chapter]
+\newtheorem{theorem}{\bf Định lý}[chapter]
+\newtheorem{proposition}{\bf Mệnh đề}[chapter]
+\newtheorem{corollary}{\bf Hệ quả}[chapter]
+\newtheorem{definition}{\bf Định nghĩa}[chapter]
+\newtheorem{remark}{\bf Chú ý}[section]
+% \newtheorem{problem}{Bài toán}
+% \renewcommand*{\listalgorithmcfname}{List of Algorithms}
+% \renewcommand*{\algorithmcfname}{Algorithm}
+% \renewcommand*{\algorithmautorefname}{thuật toán}
+
+%mức tiêu đề
+\titleclass{\subsubsubsection}{straight}[\subsection]
+
+\newcounter{subsubsubsection}[subsubsection]
+\renewcommand\thesubsubsubsection{\thesubsubsection.\arabic{subsubsubsection}}
+\renewcommand\theparagraph{\thesubsubsubsection.\arabic{paragraph}} % optional; useful if paragraphs are to be numbered
+
+\titleformat{\subsubsubsection}
+  {\normalfont\normalsize\bfseries}{\thesubsubsubsection}{1em}{}
+\titlespacing*{\subsubsubsection}
+{0pt}{3.25ex plus 1ex minus .2ex}{1.5ex plus .2ex}
+
+\makeatletter
+\renewcommand\paragraph{\@startsection{paragraph}{5}{\z@}%
+  {3.25ex \@plus1ex \@minus.2ex}%
+  {-1em}%
+  {\normalfont\normalsize\bfseries}}
+\renewcommand\subparagraph{\@startsection{subparagraph}{6}{\parindent}%
+  {3.25ex \@plus1ex \@minus .2ex}%
+  {-1em}%
+  {\normalfont\normalsize\bfseries}}
+\def\toclevel@subsubsubsection{4}
+\def\toclevel@paragraph{5}
+\def\toclevel@paragraph{6}
+\def\l@subsubsubsection{\@dottedtocline{4}{7em}{4em}}
+\def\l@paragraph{\@dottedtocline{5}{10em}{5em}}
+\def\l@subparagraph{\@dottedtocline{6}{14em}{6em}}
+\makeatother
+
+\setcounter{secnumdepth}{4}
+\setcounter{tocdepth}{4}
+
+
+%thư mục hình
+\graphicspath{{./figs/}}
+
+\definecolor{mygreen}{rgb}{0,0.6,0}
+\definecolor{mygray}{rgb}{0.5,0.5,0.5}
+\definecolor{mymauve}{rgb}{0.58,0,0.82}
+
+\lstdefinestyle{customc}{
+  belowcaptionskip=1\baselineskip,
+  breaklines=true,
+  frame=single,
+  xleftmargin=\parindent,
+  language=C,
+  showstringspaces=false,
+  basicstyle=\footnotesize\ttfamily,
+  keywordstyle=\bfseries\color{green!40!black},
+  commentstyle=\itshape\color{purple!40!black},
+  identifierstyle=\color{blue},
+  stringstyle=\color{orange},
+  numbers=left,                   % where to put the line-numbers
+  numberstyle=\tiny\color{gray},  % the style that is used for the line-numbers
+  stepnumber=1, 
+}
+
+\lstdefinestyle{customasm}{
+  belowcaptionskip=1\baselineskip,
+  frame=single,
+  xleftmargin=\parindent,
+  language=[x86masm]Assembler,
+  basicstyle=\footnotesize\ttfamily,
+  commentstyle=\itshape\color{purple!40!black},
+  numbers=left,                   % where to put the line-numbers
+  numberstyle=\tiny\color{gray},  % the style that is used for the line-numbers
+  stepnumber=1, 
+}
+
+\lstset{escapechar=@,style=customc}
+
+\definecolor {processblue}{cmyk}{0.96,0,0,0}
+
+\newcolumntype{C}[1]{>{\centering\arraybackslash}p{#1}}
+
+\definecolor{eclipseStrings}{RGB}{42,0.0,255}
+
+\definecolor{eclipseKeywords}{RGB}{127,0,85}
+
+\colorlet{numb}{magenta!60!black}
+
+
+
+\lstdefinelanguage{json}{
+    basicstyle=\normalfont\ttfamily,
+    commentstyle=\color{eclipseStrings}, % style of comment
+    stringstyle=\color{eclipseKeywords}, % style of strings
+    numbers=left,
+    numberstyle=\scriptsize,
+    stepnumber=1,
+    numbersep=8pt,
+    showstringspaces=false,
+    breaklines=true,
+    frame=lines,
+    string=[s]{"}{"},
+    comment=[l]{:\ "},
+    morecomment=[l]{:"},
+    literate=
+        *{0}{{{\color{numb}0}}}{1}
+         {1}{{{\color{numb}1}}}{1}
+         {2}{{{\color{numb}2}}}{1}
+         {3}{{{\color{numb}3}}}{1}
+         {4}{{{\color{numb}4}}}{1}
+         {5}{{{\color{numb}5}}}{1}
+         {6}{{{\color{numb}6}}}{1}
+         {7}{{{\color{numb}7}}}{1}
+         {8}{{{\color{numb}8}}}{1}
+         {9}{{{\color{numb}9}}}{1}
+}
+
+\begin{document}
+\hypersetup{pageanchor=false}
+
+\begin{titlepage}
+\begin{center}
+	\begin{tikzpicture}[overlay,remember picture]
+	    \draw [line width=3pt,rounded corners=0pt,
+	        ]
+	        ($ (current page.north west) + (20mm,-20mm) $)
+	        rectangle
+	        ($ (current page.south east) + (-15mm,20mm) $);
+	    \draw [line width=1pt,rounded corners=0pt]
+	        ($ (current page.north west) + (21.5mm,-21.5mm) $)
+	        rectangle
+	        ($ (current page.south east) + (-16.5mm,21.5mm) $);
+	\end{tikzpicture}
+	\\[1mm]
+    \centerline{\bf VIETNAM NATIONAL UNIVERSITY HANOI}
+    \centerline{\bf UNIVERSITY OF ENGINEERING AND TECHNOLOGY}
+    
+    \vspace*{1.8cm}
+    \large
+        \begin{figure}[H]
+        \centering
+        \includegraphics[width=0.23\linewidth]{figs/uet.jpg}
+        \end{figure}
+    \vspace*{1cm}
+    \centerline{\bf KHONG MANH TUAN}
+    \vspace*{2.5cm}
+    \centerline{\bf AI-AUGMENTED NFV ORCHESTRATION FOR  }
+    % \centerline{\bf INTRUSION DETECTION SYSTEM}
+    \centerline{\bf PROACTIVE DDOS PROTECTION IN CLOUD DATA CENTERS}
+    \vspace*{2.5cm}
+    \centerline{\bf GRADUATION THESIS}
+    \vspace*{0.2cm}
+    \centerline{\bf Major: Computer Science}
+    
+    \vfill
+    \centerline{\bf Hanoi - 2026}
+    \vspace{13pt}
+\end{center}
+\end{titlepage}
+
+\newpage
+
+\begin{titlepage}
+\begin{center}
+	\begin{tikzpicture}[overlay,remember picture]
+	    \draw [line width=3pt,rounded corners=0pt,
+	        ]
+	        ($ (current page.north west) + (20mm,-20mm) $)
+	        rectangle
+	        ($ (current page.south east) + (-15mm,20mm) $);
+	    \draw [line width=1pt,rounded corners=0pt]
+	        ($ (current page.north west) + (21.5mm,-21.5mm) $)
+	        rectangle
+	        ($ (current page.south east) + (-16.5mm,21.5mm) $);
+	\end{tikzpicture}
+	\\[1mm]
+    \centerline{\bf VIETNAM NATIONAL UNIVERSITY HANOI}
+    \centerline{\bf UNIVERSITY OF ENGINEERING AND TECHNOLOGY}
+    \vspace*{1.8cm}
+    \large
+        \begin{figure}[H]
+        \centering
+        \includegraphics[width=0.23\linewidth]{figs/uet.jpg}
+        \end{figure}
+    \vspace*{0.9cm}
+    \large
+    \centerline{\bf KHONG MANH TUAN}
+    \vspace*{2.2cm}
+    \centerline{\bf AI-AUGMENTED NFV ORCHESTRATION FOR}
+    % \centerline{\bf INTRUSION DETECTION SYSTEM}
+    \centerline{\bf PROACTIVE DDOS PROTECTION IN CLOUD DATA CENTERS}
+    \vspace*{1.7cm}
+    \centerline{\bf Major: COMPUTER SCIENCE }
+    
+    \vspace*{1.6cm}
+    \centerline{\bf Supervisor: }
+    \centerline{\bf Assoc. Prof. Nguyen Ngoc Hoa }
+    
+    \vfill
+    \centerline{\bf Hanoi - 2026}
+    \vspace{13pt}
+\end{center}
+\end{titlepage}
+
+
+
+\newpage
+\pagenumbering{gobble}
+\chapter*{Acknowledgements}
+\vspace{20pt}
+% Fill the acknowledgements
+
+I would like to express my sincere gratitude to my supervisor, Associate Professor Nguyen Ngoc Hoa, for his invaluable guidance and encouragement during this research. My professor's expertise and feedback were instrumental throughout the writing process, which made the completion of this thesis possible.
+
+I acknowledge that my thesis still has potential for enhancement. I welcome any feedback that could help improve the quality of this thesis in the future.
+
+Sincere gratitude!
+
+
+\newpage
+\chapter*{Authorship}
+\vspace{20pt}
+% Fill the authorship
+
+I declare that the thesis is my original work, under the supervision of Associate Professor Nguyen Ngoc Hoa. This work has not been submitted for any other degree or professional qualification.
+
+All references and related works used in this thesis have been appropriately acknowledged and cited. The statistical data included has been thoroughly tested and analyzed based on actual experimental results. 
+
+I affirm that this declaration is made with full integrity and in accordance with the institution's policies.
+
+\begin{flushright}
+{\it Author}
+\hskip 1.5cm\quad
+
+
+\vskip 2cm
+{\bf Khong Manh Tuan }  \quad\ 
+\end{flushright}
+\newpage
+
+
+
+\newpage
+% \pagenumbering{Roman}
+\chapter*{Supervisor's Approval}
+\vspace{20pt}
+I hereby approve that the thesis in its current form is ready for committee examination as a requirement for the Engineer of Computer Network and Data Communication degree at the VNU University of Engineering and Technology.
+
+All references from relevant studies are explicitly sourced from the list of references in the thesis. The thesis does not copy documents and research works of others without specifying the references.
+
+
+\begin{flushright}
+{\it Signature}
+\hskip 1.5cm\quad
+
+\vskip 2cm
+{\bf Nguyen Ngoc Hoa }  \quad\ 
+\end{flushright}
+
+
+\newpage
+% Enhancing the Robustness of AI-powered IDPS against Adversarial Evasion Attacks
+\centerline{\bf AI-AUGMENTED NFV ORCHESTRATION FOR }
+\centerline{\bf PROACTIVE DDOS MITIGATION IN DATA CENTER NETWORK}
+\vspace{10pt}
+\centerline{Khong Manh Tuan}
+
+
+\vspace{2cm}
+{\bf Abstract}
+\vspace{5pt}
+
+Artificial intelligence–driven intrusion detection and prevention systems (IDPS) have become a cornerstone of modern network security due to their ability to automatically learn complex attack patterns and detect previously unseen threats. In particular, hybrid ensemble IDPS that combine deep learning models with gradient-boosted decision trees have demonstrated strong detection accuracy on benchmark datasets. However, recent advances in adversarial machine learning reveal that such systems remain vulnerable to carefully crafted evasion attacks, especially under black-box and transfer-based threat models that reflect realistic attacker constraints.
+
+This thesis investigates adversarial robustness in hybrid deep–tree ensemble IDPS through the lens of adversarial transferability. We first conduct a systematic empirical analysis on APELID, a representative hybrid ensemble IDPS, showing that adversarial perturbations optimized against deep neural network components transfer disproportionately to tree-based learners, whereas the reverse transfer is significantly weaker. This asymmetric transferability exposes a critical ensemble-level failure mode that is not apparent when models are evaluated in isolation.
+
+Building on these findings, we propose HEDGE, a transfer-aware defense framework that combines targeted hybrid adversarial training with lightweight inference-time feature squeezing. The proposed approach explicitly aligns defensive mechanisms with the heterogeneous vulnerability profiles of deep and tree-based components, mitigating both direct evasion and cross-model adversarial transfer. Extensive experiments on the NSL-KDD and CSE-CIC-IDS2018 datasets under multiple white-box, black-box, and transfer-based attacks demonstrate that HEDGE substantially reduces attack success rates while preserving near-original performance on benign traffic.
+
+Overall, this work provides new empirical insights into adversarial behavior in hybrid ensemble IDPS and introduces a practical, multi-layer defense strategy for improving robustness in real-world AI-powered intrusion detection and prevention deployments.
+
+
+
+
+\newpage
+%Table of Contents
+\tableofcontents
+
+\newpage
+\listoffigures
+ 
+
+\newpage
+\listoftables
+\begingroup
+\listofalgorithms
+\let\clearpage\relax
+\endgroup
+
+\newpage
+\chapter*{List of Abbreviations}
+\vspace{20pt}
+
+\begin{table}[H]
+\centering
+\begin{tabular}{|m{2cm}|m{8cm}|}
+% Fill the abbreviations
+\hline
+IDS & Intrusion Detection Systems \\ \hline
+
+IPS & Intrusion Prevention Systems \\ \hline
+
+IDPS & Intrusion Detection and Prevention Systems \\ \hline
+
+NIDPS & Network-based Intrusion Detection and Prevention Systems \\ \hline
+
+AI & Artificial Intelligence \\ \hline
+
+ML & Machine Learning \\ \hline
+
+DL & Deep Learning \\ \hline
+
+GBT & Gradient Boosting Tree \\ \hline
+
+AML & Adversarial Machine Learning \\ \hline
+
+% AE & Adversarial Sample \\ \hline
+
+FGSM & Fast Gradient Sign Method \\ \hline
+
+JSMA & Jacobian-Based Saliency Map Attack \\ \hline
+
+PGD & Projected Gradient Descent \\ \hline
+
+CW & Carlini and Wagner Attack \\ \hline
+
+ZOO & Zeroth-Order Optimization \\ \hline
+
+HSJA & HopSkipJump Attack \\ \hline
+
+AT & Adversarial Training \\ \hline
+
+HAT & Hybrid Adversarial Training \\ \hline
+
+IAT & Isolated Adversarial Training \\ \hline
+
+FS & Feature Squeezing \\ \hline
+
+GAN & Generative Adversarial Network \\ \hline
+\end{tabular}
+\end{table}
+
+
+
+
+
+\chap{Introduction}
+\pagestyle{fancy}
+\pagenumbering{arabic}
+
+\sect{Motivation}
+
+Cyberattacks, as defined by IBM,\footnote{\url{https://www.ibm.com/think/topics/cyber-attack}} are 
+\textit{“deliberate attempts to gain unauthorized access to a computer network, computer system or digital device”} 
+with the intent to 
+\textit{“steal, expose, alter, disable or destroy data, applications or other assets.”} 
+Recent classifications by Fortinet\footnote{\url{https://www.fortinet.com/resources/cyberglossary/types-of-cyber-attacks}} highlight the growing diversity and sophistication of modern cyber threats, spanning network-layer disruptions, credential abuse, malware campaigns, and application-layer exploits.
+
+At the network level, attacks such as Denial-of-Service (DoS/DDoS), traffic interception, and unauthorized access attempts directly threaten service availability and data integrity. The \textit{Cloudflare DDoS Threat Report – Q2 2025}\footnote{\url{https://blog.cloudflare.com/ddos-threat-report-for-2025-q2/}} reports a sharp rise in large-scale attacks, underscoring the need for systems that support not only accurate detection but also timely prevention and mitigation in operational environments.
+
+Consequently, Intrusion Detection and Prevention Systems (IDPS) have become a core component of modern cybersecurity architectures. By monitoring network traffic and system behavior in real time, IDPS enable early detection while supporting preventive actions such as alerting, blocking, or traffic filtering. The adoption of Artificial Intelligence (AI), particularly Machine Learning (ML) and Deep Learning (DL), has significantly enhanced these capabilities by enabling automated feature learning and improved detection of previously unseen attacks. However, AI-driven IDPS also introduces new risks, most notably vulnerability to adversarial manipulation, where carefully crafted perturbations evade detection while preserving traffic functionality.
+
+To address these limitations, hybrid ensemble IDPS architectures have emerged by combining complementary learning paradigms. Among them, the APELID framework~\cite{jAPELID24} represents a practical hybrid IDPS design that integrates AWGAN-based data balancing with a heterogeneous ensemble of deep-learning and tree-based models, coupled with signature-based prevention. While such architectures achieve strong detection and prevention performance, they remain vulnerable to adversarial behaviors that exploit architectural heterogeneity and cross-model influence.
+
+In particular, adversarial samples crafted against one model family may propagate to other components within the ensemble, leading to system-level degradation that is not apparent when models are evaluated in isolation. This motivates a deeper investigation into adversarial dynamics within hybrid ensembles and the design of hybrid IDPS architectures that explicitly account for heterogeneous model behavior and cross-model adversarial transfer.
+
+
+
+
+
+
+\sect{Research Challenges and Research Problem}
+
+Although hybrid AI-based Intrusion Detection and Prevention Systems (IDPS) combine deep learning and gradient-boosting models to achieve high detection accuracy and early-stage prevention, their robustness against adversarial evasion remains insufficiently addressed. In particular, several open challenges limit the reliability of hybrid IDPS under adaptive and transfer-based attack settings:
+
+\begin{enumerate}
+    \item \textbf{Lack of systematic analysis of cross-model adversarial transferability in hybrid IDPS.} 
+    Adversarial examples crafted to deceive one learner may transfer to other models, even when architectures and learning mechanisms differ substantially. Hybrid IDPS that integrate deep neural networks with gradient-boosting models therefore remain exposed to cross-model adversarial propagation, yet existing studies provide limited insight into the directionality, strength, and root causes of such transfer at the system level.
+
+    \item \textbf{Insufficient exploitation of asymmetric vulnerability patterns.} 
+    Deep learning models are primarily vulnerable to gradient-based white-box attacks, whereas boosting-based learners are more susceptible to query-driven black-box perturbations. However, most robustness-enhancement strategies harden heterogeneous learners uniformly, without accounting for architectural asymmetry. This limits the effectiveness of hybrid IDPS and leads to uneven resilience across detection and prevention components.
+
+    \item \textbf{Limited exploration of coordinated transfer-aware multi-layer robustness strategies in hybrid IDPS.} 
+    While combinations of adversarial training and lightweight input preprocessing have been proposed, they are rarely designed explicitly for hybrid DL--GBT ensembles operating as end-to-end IDPS. As a result, the interaction between training-time robustness mechanisms and inference-time input hardening remains underexplored, particularly in mitigating adversarial transfer across heterogeneous components. Without transfer-aware coordination, multi-layer protection risks redundancy or suboptimal coverage.
+\end{enumerate}
+
+These challenges indicate that robustness in hybrid IDPS cannot be treated as an isolated property of individual models or standalone defense components. Instead, it must be addressed at the system-design level, where architectural heterogeneity, asymmetric vulnerabilities, and adversarial transfer jointly shape detection and prevention behavior under attack.
+
+The research problem addressed in this thesis is how to design and build a hybrid intrusion detection and prevention system that integrates deep learning and gradient-boosting models, while maintaining robustness against adversarial evasion attacks---particularly under asymmetric and cross-model adversarial transfer that can propagate perturbations across heterogeneous ensemble components.
+
+
+
+
+\sect{Objective and Contents}
+\label{sect:objective}
+
+Motivated by the limited understanding of how adversarial perturbations propagate within hybrid intrusion detection and prevention systems, this thesis focuses on the design and strengthening of a practical hybrid IDPS rather than an isolated defense mechanism. Specifically, the work builds upon the APELID architecture~\cite{jAPELID24} as a baseline hybrid DL--GBT ensemble IDPS and extends it to operate reliably under adversarial evasion and cross-model attack transfer.
+
+The central objective is to design and implement an enhanced hybrid intrusion detection and prevention system that integrates deep learning and gradient-boosting models while remaining robust to adversarial manipulation---particularly under asymmetric and cross-model transfer effects. To achieve this, the thesis systematically analyzes adversarial behavior within mixed-model ensembles, characterizes directional transfer dynamics between DL and GBT components, and incorporates robustness mechanisms directly into the IDPS pipeline at both training and inference stages. All proposed extensions are evaluated on NSL-KDD and CSE-CIC-IDS2018 to ensure reproducibility and operational relevance.
+
+To accomplish these objectives, the thesis is organized around the following tasks:
+
+\begin{itemize}
+    \item Review foundational concepts in intrusion detection and prevention systems, ensemble learning, and adversarial evasion attacks.
+    \item Reconstruct and validate the baseline APELID hybrid ensemble IDPS as the reference system.
+    \item Systematically evaluate adversarial evasion and cross-model transfer behavior under white-box and black-box attack scenarios.
+    \item Extend the baseline IDPS with robustness-aware mechanisms integrated into the training and inference pipeline.
+    \item Conduct comprehensive experiments on NSL-KDD and CSE-CIC-IDS2018 to assess detection, prevention effectiveness, and adversarial robustness of the enhanced IDPS.
+\end{itemize}
+
+
+\sect{Contribution Highlights}
+\label{sec:contribution}
+
+Motivated by the identified research gaps---limited understanding of adversarial transfer within hybrid ensembles, asymmetric vulnerability across heterogeneous learners, and the absence of transfer-aware coordination in existing IDPS designs---this thesis makes the following key contributions toward building a robust hybrid intrusion detection and prevention system:
+
+\begin{enumerate}
+    \item \textbf{Systematic characterization of adversarial behavior in hybrid DL--GBT intrusion detection and prevention systems.} 
+    This thesis presents a structured experimental analysis of adversarial evasion in a hybrid IDPS composed of deep learning and gradient-boosting models. By applying both white-box and black-box attacks under controlled settings, the study quantitatively examines cross-model adversarial transfer within the ensemble. The results reveal pronounced asymmetry in transferability---where perturbations crafted on the DNN propagate strongly to GBT learners, while the reverse effect is substantially weaker---and demonstrate how these directional effects translate into system-level degradation of detection and prevention performance. This analysis provides insight into why hybrid IDPS may fail under adversarial pressure despite strong clean-traffic accuracy.
+
+    \item \textbf{Design and implementation of an enhanced hybrid IDPS with integrated, transfer-aware robustness mechanisms.}
+    Building upon the baseline APELID architecture, this thesis develops an extended hybrid intrusion detection and prevention system that explicitly accounts for adversarial transfer dynamics within the ensemble. The enhanced system incorporates complementary robustness mechanisms directly into the IDPS pipeline:
+    \begin{itemize}
+        \item \textit{Hybrid Adversarial Training}, which augments each model family with adversarial samples aligned to its dominant attack exposure, enabling the system to internalize both direct and transferred adversarial patterns during training.
+        \item \textit{Feature Squeezing at inference}, which introduces lightweight input hardening to suppress small-magnitude perturbations before classification and enforcement, without altering model architectures or incurring significant runtime overhead.
+    \end{itemize}
+    Together, these extensions form a transfer-aware hybrid IDPS that strengthens robustness across both detection and prevention stages. Extensive evaluation on NSL-KDD and CSE-CIC-IDS2018 shows that the resulting system significantly reduces attack success rates across diverse adversarial settings while maintaining stable performance on benign traffic.
+\end{enumerate}
+
+
+
+
+
+
+\newpage
+
+\sect{Thesis Outline}
+
+This thesis is organized into four main chapters.
+
+\begin{itemize}
+    \item Chapter~\ref{chap:intro} introduces the background concepts relevant to this study, including Machine Learning, Deep Learning, ensemble-based Intrusion Detection and Prevention Systems, and the benchmark datasets used for evaluation.
+    
+    \item Chapter~\ref{chap:related} reviews related work on adversarial evasion attacks, transferability, and defense strategies in ML- and DL-based IDPS, and identifies the research gaps motivating this work.
+    
+    \item Chapter~\ref{chap:method} presents the proposed hybrid IDPS methodology, extending the baseline APELID architecture. This chapter defines the adversarial threat model for hybrid DL--GBT ensembles and describes the design of a transfer-aware, robustness-enhanced detection system.
+    
+    \item Chapter~\ref{chap:experiments} evaluates the proposed system through comprehensive experiments on benchmark datasets, analyzing baseline vulnerabilities and robustness under adversarial conditions.
+\end{itemize}
+
+The thesis concludes with a summary of findings and directions for future research.
+
+
+
+
+\chapter{Background}
+\label{chap:intro}
+This chapter establishes the foundational background for the study of AI-powered intrusion detection and prevention systems. It introduces the core learning paradigms that underpin modern detection models, including machine learning, deep learning, and ensemble learning, and reviews how these techniques have reshaped intrusion detection and prevention architectures beyond traditional signature- and rule-based approaches. The chapter further outlines the structural characteristics of contemporary IDPS deployments and the role of heterogeneous model integration in improving detection capability and robustness. Finally, it presents the benchmark datasets used throughout this thesis, providing the data context necessary for systematic evaluation of adversarial behavior, transferability, and defense mechanisms in hybrid AI-driven intrusion detection and prevention systems.
+
+
+\section{Chapter Summary}
+
+This chapter examined the fundamental components underlying AI-driven intrusion detection and prevention systems from three complementary perspectives: learning paradigms, system architectures, and benchmark data. It first reviewed machine learning, deep learning, and ensemble learning approaches, clarifying their respective learning mechanisms and their relevance to automated and data-driven intrusion detection.
+
+The chapter then analyzed intrusion detection and prevention systems within modern cybersecurity architectures, detailing IDPS deployment models and detection methodologies, and explaining the limitations of traditional signature- and rule-based systems that motivate the adoption of learning-based techniques. The evolution toward ML-, DL-, and ensemble-based IDPS was discussed to highlight the role of representation learning and heterogeneous model integration in improving detection capability.
+
+Finally, the chapter described the benchmark datasets employed throughout this thesis, including NSL-KDD and CSE-CIC-IDS2018, with emphasis on their feature representations, attack taxonomies, and design characteristics. These datasets provide a common experimental basis for evaluating detection performance, adversarial behavior, and robustness in later chapters.
+
+Together, these discussions equip the reader with the conceptual vocabulary, architectural context, and data understanding required for the subsequent analysis of adversarial attacks, transferability phenomena, and defense strategies in hybrid AI-powered intrusion detection and prevention systems.
+
+
+\chapter{Related Work}
+\label{chap:related}
+
+Building on the background of AI-powered intrusion detection and prevention systems presented in the previous chapter, this chapter reviews existing research on adversarial attacks and defenses in learning-based IDPS. As machine learning, deep learning, and ensemble models have become central to modern intrusion detection, their vulnerability to adversarial evasion has emerged as a critical security challenge.
+
+This chapter surveys prior work on adversarial evasion attacks, transferability, and robustness mechanisms in IDPS, covering white-box, black-box, and transfer-based threat models across ML-, DL-, and ensemble-based detectors. Both attack-oriented analyses and defensive strategies are considered, with an emphasis on empirical evaluation in network intrusion settings.
+
+By organizing the literature according to attack characteristics, threat assumptions, and defense approaches, this chapter highlights recurring patterns and limitations in current research. These observations motivate the research gaps that inform the design of the proposed defense framework in subsequent chapters.
+
+
+
+\section{Research Gaps}
+Despite this growing body of work on white-box, black-box, and transfer-based evasion, mentioned at Section~\ref{sec:evasion_attacks}, existing studies largely evaluate adversarial behaviour at the level of single detectors or homogeneous model families. Transferability analyses in IDPS typically focus on deep architectures of similar type (e.g., DNNs or autoencoder-based NIDPS) and examine how surrogate-crafted traffic generalizes across models sharing comparable feature spaces and training distributions~\cite{jMLtransferatk-papernot16,jTransferAdvAtk-DLNIDS-Mao25,jTransAdv-in-AENIDS-Zhang24,jCoseBlackboxtransfer-in-cybersec-Roshan24}. As a result, the literature offers only fragmented insight into \textit{hybrid deep--tree ensemble settings}, where gradient-based DL components coexist with non-differentiable boosting ensembles. In particular, there is no systematic analysis of cross-model adversarial transferability within such heterogeneous ensembles---e.g., how strongly DL-originated perturbations propagate into GBT learners, whether the reverse direction is symmetric, and how these directional effects translate into ensemble-level failure modes in AI-powered IDPS.
+
+Beyond the lack of transfer-focused evaluations, current defense mechanisms reviewed in Section~\ref{sec:defenses} generally treat ML and DL classifiers as interchangeable components within the pipeline. Very few approaches explicitly exploit architectural asymmetry between differentiable deep neural networks and non-differentiable boosting ensembles. As a result, adversarial training and input-based defenses are typically applied uniformly, without regard to each model family's distinct failure mechanisms or dominant threat vectors. This reflects an \textit{architecture-level gap} in defensive design---where heterogeneous learners are hardened without acknowledging their divergent vulnerability profiles, leading to uneven robustness and residual attack surfaces within hybrid ensemble IDPS.
+
+In addition to architecture-specific considerations, existing defense strategies lack a \textit{transfer-aware multi-layer framework} that jointly combines model-level adversarial training with lightweight input-level hardening. Although several empirical defenses employ multiple mitigation components, these mechanisms are typically evaluated in isolation or applied uniformly, without explicit coordination across layers. In particular, prior work has not systematically investigated how training-time robustness mechanisms and inference-time input transformations can be jointly designed to mitigate adversarial transfer within \textit{hybrid DL--GBT ensemble IDPS}. As a result, current defense pipelines do not provide a principled strategy for integrating complementary layers in a transfer-aware manner, leaving residual vulnerabilities in heterogeneous ensemble architectures.
+
+These unresolved issues motivate the need to move beyond isolated model evaluation and uniformly applied defenses toward a system-level design perspective for adversarial robustness in hybrid intrusion detection. The research problem addressed in this thesis is how to design and build a hybrid intrusion detection and prevention system that integrates deep learning and gradient-boosting models, while remaining resilient to adversarial evasion attacks---particularly under asymmetric and cross-model adversarial transfer that can propagate vulnerabilities across heterogeneous ensemble components.
+
+
+
+
+\section{Chapter Summary}
+This chapter reviewed prior research on adversarial robustness in AI-powered intrusion detection and prevention systems. It introduced core adversarial machine learning (AML) concepts and threat-model dimensions, motivating test-time evasion as the most practically relevant adversarial setting for IDPS, and discussed both white-box and black-box attack paradigms under realistic attacker assumptions.
+
+The chapter then examined adversarial transferability, highlighting how perturbations generated on surrogate models can generalize across heterogeneous targets, particularly in modern hybrid ensemble IDPS architectures.
+
+Finally, adversarial defense strategies were synthesized into three categories: input transformation, detection-and-rejection, and training-time robustness. While prior studies show that combining defenses can improve resilience, existing approaches rarely adopt an integrated, transfer-aware design tailored to hybrid deep--tree ensembles, where cross-model transfer can induce ensemble-level failure modes.
+
+These observations motivate the core research direction of this thesis: the design of a coordinated, transfer-aware defense framework for hybrid DL--GBT ensemble IDPS that integrates complementary robustness mechanisms at both training and inference stages.
+
+
+\chapter{Proposed Method: HEDGE}
+\label{chap:method}
+
+\section{Approach Direction}
+\label{sec:approach}
+
+The proposed method is guided by the observation that adversarial threats against hybrid ensemble intrusion detection and prevention systems---particularly those combining deep learning and gradient-boosting models---cannot be effectively addressed when robustness is treated as an external or add-on defense concern. While such ensembles achieve strong detection accuracy in benign settings, their heterogeneous components respond differently to adversarial manipulation, and perturbations crafted for one model family may propagate across the ensemble. Designing a resilient hybrid IDPS therefore requires treating adversarial robustness as a system-level property rather than an isolated model attribute.
+
+In this thesis, robustness is approached from the perspective of building an adversarially resilient intrusion detection and prevention system (IDPS) whose architecture, training pipeline, and inference behavior are jointly informed by adversarial dynamics. Adversarial behavior is first examined through structured attack scenarios to reveal asymmetric vulnerability and cross-model transfer within hybrid ensembles. These observations are then used to guide the integration of robustness mechanisms at both training and inference stages, ensuring that mitigation is embedded directly into the IDPS lifecycle rather than applied post hoc.
+
+Following this approach, the thesis develops \textbf{HEDGE} as a hybrid IDPS that extends the APELID baseline architecture \cite{jAPELID24} with transfer-aware robustness enhancements. Rather than replacing APELID, HEDGE preserves its core design---including AWGAN-based data balancing and parallel DL--GBT ensemble inference---while augmenting it with adversarially informed training curricula and lightweight input hardening. The acronym \textbf{HEDGE} (\textit{Hybrid Ensemble Defense with Gradient-aware and Enhanced robustness}) reflects this design philosophy, where \textit{gradient-aware} emphasizes resilience against gradient-driven and transferable evasion attacks originating from differentiable learners. In this sense, HEDGE represents an adversarially hardened evolution of APELID, serving as a practical and extensible baseline for robust hybrid IDPS deployment.
+
+
+
+\section{Chapter Summary}
+
+This chapter presented HEDGE, a transfer-aware hybrid Intrusion Detection and Prevention System (IDPS) designed to improve adversarial resilience in ensemble-based detection pipelines. The approach is motivated by the observation that deep learning and gradient-boosting models exhibit asymmetric vulnerability profiles, allowing adversarial perturbations to propagate unevenly across heterogeneous learners and rendering isolated or single-stage defenses insufficient.
+
+HEDGE is developed as an extension of the baseline APELID hybrid IDPS, inheriting its ensemble-based detection and signature-driven prevention workflow. To characterize adversarial dynamics in this hybrid setting, three structured attack scenarios were defined to examine bidirectional perturbation transfer and ensemble-level degradation under model-specific threat vectors.
+
+Based on these findings, HEDGE augments the baseline IDPS with coordinated robustness mechanisms across training and inference stages, combining transfer-aware adversarial training with lightweight input hardening at deployment. Together, these enhancements preserve the original detection and prevention capabilities while transforming the system into a transfer-aware hybrid IDPS with improved resilience against adversarial evasion. Part of this work has been peer-reviewed and published as 
+``\textit{Multi-Layer Defense for AI-powered IDPS: Ensemble Adversarial Training and Explainable Resilience to Evasion Attacks},'' 
+in the proceedings of the \textit{2nd International Conference on Cryptography and Information Security 2025}~[TQM1].
+
+
+
+
+\chapter{Experiments and Evaluation}
+\label{chap:experiments}
+
+This chapter evaluates the proposed HEDGE framework using a structured experimental workflow focused on adversarial behavior in a hybrid intrusion detection and prevention system. The target system is a heterogeneous ensemble consisting of four gradient-boosting models (XGB, GBM, CBT, and BME) and one deep neural network (DNN). Experiments are conducted on the NSL-KDD and CSE-CIC-IDS2018 datasets to examine both normal detection performance and robustness under adversarial attacks.
+
+The evaluation is organized into three experiments (E1--E3), each addressing a specific aspect of model vulnerability and defense effectiveness:
+
+\begin{itemize}
+    \item \textbf{E1: General Vulnerability Assessment.} 
+    This experiment examines the baseline vulnerability of individual models and the unprotected APELID ensemble, with a focus on cross-model attack transfer. In particular, it analyzes the strong transfer of attacks from the DNN to tree-based models and the much weaker transfer in the opposite direction.
+
+    \item \textbf{E2: Performance of the APELID Ensemble Model.} 
+    This experiment evaluates how the unprotected ensemble behaves under adversarial attacks, assessing how weighted decision fusion responds to different types of attacks and perturbation strengths.
+
+    \item \textbf{E3: Ablation Study and Isolated vs.~Hybrid Training.} 
+    This experiment assesses the effectiveness of the proposed defenses by separating the impact of feature squeezing (FS), isolated adversarial training, hybrid adversarial training (HAT), and the combination of FS and HAT in the full HEDGE framework, highlighting the importance of transfer-aware training strategies.
+\end{itemize}
+
+Across all experiments, performance is evaluated using standard classification metrics, including Accuracy, Precision, Recall (Detection Rate), and class-weighted F1-score. In addition, Attack Success Rate (ASR) is reported to measure the proportion of samples that are correctly classified under normal conditions but become misclassified after adversarial perturbations.
+
+
+
+
+\section{Implementation Details}
+
+
+\section{Evaluation Metrics}
+\label{sec:metrics}
+
+To assess the performance and adversarial robustness of the models employed in APELID,
+we adopt several standard evaluation metrics commonly used in machine learning research,
+including Accuracy, Precision, Recall (also referred to as Detection Rate), and F1 Score. As
+the models used in this study perform multi-class classification, each metric is computed by
+comparing the predicted class $\hat{y}_i$ with the ground truth label $y_i$ for every sample
+$i \in [1,n]$, where $n$ denotes the total number of data instances. Final results are reported
+as weighted averages across all classes $K$.
+
+\begin{itemize}
+    \item \textbf{Accuracy (Acc)} quantifies the overall correctness of the model by measuring the
+    proportion of predictions that match the true labels:
+    \[
+    Accuracy = \frac{1}{n} \sum_{i=1}^{n} 1(\hat{y}_i = y_i).
+    \]
+
+    \item \textbf{Precision (Prec)} reflects the reliability of positive predictions, defined as the ratio
+    of correctly predicted positive instances to all instances predicted as positive:
+    \[
+    Precision = \sum_{k=1}^{K} \frac{n_k}{n} \cdot \frac{TP_k}{TP_k + FP_k}.
+    \]
+
+    \item \textbf{Recall / Detection Rate (DR)} measures the proportion of actual positive
+    instances that are successfully identified by the model:
+    \[
+    Recall = \sum_{k=1}^{K} \frac{n_k}{n} \cdot \frac{TP_k}{TP_k + FN_k}.
+    \]
+
+    \item \textbf{F1 Score} represents the harmonic mean between precision and recall, offering a
+    balanced measure particularly useful when the data distribution is imbalanced:
+    \[
+    F1 = \sum_{k=1}^{K} \frac{n_k}{n} \cdot \left( \frac{2 \cdot Precision_k \cdot Recall_k}{Precision_k + Recall_k} \right).
+    \]
+\end{itemize}
+
+Here, $\frac{n_k}{n}$ denotes the proportion of samples belonging to class $k$; $TP$ and $TN$
+refer to true positives and true negatives that are correctly identified; and $FP$ and $FN$ refer
+to false positives and false negatives, respectively, representing incorrectly classified samples.
+
+In addition to classification metrics, we further incorporate \textbf{Attack Success Rate (ASR)} to
+evaluate the effectiveness of adversarial attacks. ASR is defined as the percentage of samples
+that were originally classified correctly but become misclassified after applying adversarial
+perturbations:
+\[
+ASR = \frac{\text{Original Correct Samples Misclassified after Adversarial Attacks}}{\text{Original Correct Samples}}.
+\]
+
+
+\section{Results and Evaluation}
+\label{sec:evaluation}
+
+
+\section{Comparison with State-of-the-Art Methods}
+\label{subsec:comparison_with_sota}
+
+\begin{table}[t]
+    \centering
+    \footnotesize
+    \caption{Comparison with SOTA methods on accuracy (\%) under different adversarial attacks for both NSL-KDD and CSE-CIC-IDS2018 datasets.}
+    \label{tab:sota_comparison}
+\resizebox{\linewidth}{!}{
+\begin{tabular}{lccccccc}
+    \toprule
+    \textbf{Method} & \textbf{ZOO} & \textbf{HSJA} & \textbf{FGSM} & \textbf{JSMA} & \textbf{PGD} & \textbf{DeepFool} & \textbf{CW} \\
+    \midrule
+
+    % ===================== NSL-KDD =====================
+    \multicolumn{8}{l}{\textit{\textbf{NSL-KDD}}} \\
+    \midrule
+    \textbf{HEDGE} & \textbf{99.40} & \textbf{99.37} & \textbf{99.39} & \textbf{99.58} & \textbf{99.65} & \textbf{98.21} & \textbf{97.26} \\
+    APELID \cite{jAPELID24} & 75.73 & 38.15 & 89.38 & 99.70 & 99.93 & 1.60 & 85.35 \\
+    RF-RSE-AT \cite{jRF-RSE23} & - & - & 72.90 & - & 71.38 & - & - \\
+    % TND \cite{jTND-IDS-Hu25} & 39.00 & - & 15.00 & 65.00 & 47.00 & - & - \\
+    Min-Max-CNN \cite{sota_10556266} & - & - & 95.69 & - & 95.52 & 94.31 & 92.67 \\
+    Min-Max-RNN \cite{sota_10556266} & - & - & 95.53 & - & 95.52 & 95.32 & 95.21 \\
+    DLL-IDPS \cite{jDLL-IDS24} & - & - & 89.80 & - & - & 69.80 & 85.70 \\
+    
+    \midrule
+    % ===================== CSE-CIC-IDS2018 =====================
+    \multicolumn{8}{l}{\textit{\textbf{CSE-CIC-IDS2018}}} \\
+    \midrule
+    \textbf{HEDGE} & \textbf{95.94} & \textbf{95.79} & \textbf{96.93} & \textbf{97.33} & \textbf{98.45} & \textbf{94.90} & \textbf{95.75} \\
+    APELID \cite{jAPELID24} & 96.02 & 32.20 & 96.04 & 96.26 & 95.98 & 13.09 & 51.87 \\
+    % Def-IDPS \cite{cSOTA121} & - & - & 97.40 & 97.90 & - & 98.30 & - \\
+    Apollon \cite{jAPOLLONpaya24} & 93.04 & 75.50 & - & - & - & - & - \\
+    Omni \cite{mSOTA320} & - & - & 86.68 & 77.87 & - & 87.12 & 75.23 \\
+    RAIDPS \cite{jRAIDSdefense23} & - & - & - & - & 59.00 & - & - \\
+    DLL-IDPS \cite{jDLL-IDS24} & - & - & 95.00 & - & - & 71.50 & 63.70 \\
+    
+    \bottomrule
+\end{tabular}
+}
+\end{table}
+
+\autoref{tab:sota_comparison} compares HEDGE with several state-of-the-art IDPS defense approaches on both NSL-KDD and CSE-CIC-IDS2018 under various adversarial attacks. RF-RSE-AT~\cite{jRF-RSE23} enhances robustness using random subspace ensembles; Min–Max-CNN/RNN~\cite{sota_10556266} employ single-attack adversarial training to improve robustness against specific perturbations; DLL-IDPS~\cite{jDLL-IDS24} and RAIDPS~\cite{jRAIDSdefense23} are detection-oriented defenses; and Apollon~\cite{jAPOLLONpaya24} and Omni~\cite{mSOTA320} are diversity-driven methods.
+
+Across both datasets and all attack types, HEDGE consistently attains the highest or near-highest accuracy. On NSL-KDD, HEDGE achieves 97.26\%--99.65\% Accuracy across the seven attacks. On CSE-CIC-IDS2018, Accuracy ranges from 94.90\% to 98.45\%. In particular, HEDGE maintains high performance under strong optimization-based attacks such as DeepFool and C\&W, where competing methods exhibit significantly larger accuracy degradation. These results demonstrate that the proposed hybrid adversarial training and feature squeezing strategy yields more comprehensive and attack-agnostic robustness than existing ensemble, Min–Max, detection-based, and diversity-based approaches.
+
+
+\section{Chapter Summary}
+
+This chapter evaluated the proposed HEDGE approach under a comprehensive adversarial testing setup on the NSL-KDD and CSE-CIC-IDS2018 datasets, using standard classification metrics together with Attack Success Rate (ASR) to quantify adversarial impact.
+
+The evaluation comprised three stages. E1 revealed severe baseline vulnerabilities and a pronounced asymmetric transfer pattern, with perturbations crafted on the DNN transferring strongly to GBT models. E2 showed that ensembling alone offers limited protection against strong optimization-based attacks such as DeepFool and C\&W. E3 demonstrated through ablation that hybrid adversarial training is the primary driver of robustness, while feature squeezing provides complementary gains with negligible impact on clean performance. Overall, the results confirm that HEDGE effectively mitigates both direct and transfer-based adversarial threats in hybrid IDPS architectures.
+
+
+
+
+\chap{Conclusion and Future Works}
+\label{chap:conclusions}
+\sect{Main Contributions}
+
+This thesis advances the understanding and strengthening of hybrid deep–tree intrusion detection and prevention systems (IDPS) through a combination of analytical insight and architectural design. First, the work presents \textit{a systematic characterization of adversarial propagation within heterogeneous DL–GBT ensembles}, demonstrating that adversarial transferability is inherently asymmetric across model families. In particular, perturbations crafted against the deep neural network are shown to propagate strongly into boosting-based learners, whereas the reverse transfer is substantially weaker. This finding provides a principled explanation for ensemble-level failure modes that are not observable when individual models are evaluated in isolation.
+
+Building on this insight, the thesis introduces a \textit{targeted hybrid adversarial training strategy} that explicitly accounts for cross-model transfer dynamics. By constructing asymmetric, model-specific training curricula that incorporate both native and cross-generated adversarial samples, the proposed approach reduces susceptibility to dominant transfer paths and yields more uniform robustness across heterogeneous learners.
+
+Finally, the proposed \textit{HEDGE} system extends a baseline hybrid IDPS by integrating this transfer-aware training strategy with a lightweight inference-stage feature-squeezing mechanism. Rather than acting as a standalone defense, feature squeezing serves as a complementary input-level hardening component that attenuates residual fine-grained perturbations that bypass training-time robustness enhancements, without requiring architectural modification or incurring significant computational overhead.
+
+Extensive evaluation across multiple attack vectors and two benchmark datasets demonstrates that the resulting hybrid IDPS substantially reduces adversarial impact while preserving stable performance on benign traffic. A subset of the ideas, methods, and experimental results developed in this thesis was reported earlier in
+``\textit{Multi-Layer Defense for AI-powered IDPS: Ensemble Adversarial Training and Explainable Resilience to Evasion Attacks},''
+published in the proceedings of the \textit{2nd International Conference on Cryptography and Information Security 2025}~[TQM1].
+The present thesis substantially extends that work by providing a comprehensive system-level analysis, a unified IDPS design, and a broader empirical evaluation under realistic adversarial conditions.
+
+
+
+
+\sect{Limitations}
+
+While the proposed framework demonstrates measurable robustness gains under diverse attack settings, several limitations define the scope of this study. First, the adversarial model assumes manipulation at the flow featurization stage. Although this represents a practical and impactful evasion surface, emerging network architectures---such as encrypted transport, aggregated telemetry, and hardware-assisted capture---may constrain or shift feasible manipulation points. Attacks targeting earlier sensing layers were not considered and may introduce qualitatively different challenges.
+
+Second, the evaluation focuses on a specific hybrid ensemble configuration and an AWGAN-based balancing strategy. Variations in ensemble composition, feature modalities, or learned extraction mechanisms may exhibit different transfer dynamics and defensive interactions, limiting the generality of the findings.
+
+Third, the analysis is restricted to inference-time evasion. Training-time attacks, including data poisoning during periodic retraining or adaptive model updates, were not examined. In operational IDPS that learn from live traffic, such attacks could alter decision boundaries over time and pose distinct threats beyond direct evasion.
+
+Finally, several robustness gains rely on manually selected parameters, such as feature-squeezing resolution and adversarial sample allocation. Without systematic sensitivity analysis or automated tuning, the stability of these choices across datasets, threat models, and deployment conditions remains uncertain.
+
+\sect{Future Works}
+
+Building on these results, several directions merit further investigation to enhance the robustness and applicability of hybrid IDPS frameworks. One extension involves expanding the threat model to earlier sensing stages and protocol-aware perturbations, including evasion under encrypted traffic, lossy telemetry, or malformed export formats, to better reflect modern network environments.
+
+Another direction is the exploration of alternative hybrid model compositions. Incorporating Transformer-based flow encoders, graph neural networks for relational context, or lightweight tree ensembles for edge deployment may expose different transfer behaviors and defensive opportunities.
+
+Future work should also address the robustness of continuous learning pipelines against poisoning-based manipulation. As IDPS increasingly adapt through feedback and incremental retraining, mechanisms for detecting adversarial contamination, validating trust boundaries, and distinguishing strategic drift from natural traffic evolution will become critical.
+
+Finally, the reliance on manually tuned parameters highlights an open research challenge, motivating further study of automated optimization techniques to improve robustness consistency under adversarial conditions.
+
+
+
+
+
+\chap{Publications}
+
+\noindent [TQM1] Hanh P. Du, Minh Q. Tran, Tuyen T. Nguyen, Hoa N. Nguyen, ``Multi-Layer Defense for AI-powered IDPS: Ensemble Adversarial Training and Explainable Resilience to Evasion Attacks," \textit{2025 2nd International Conference On Cryptography And Information Security (VCRIS)}, Hanoi, Vietnam, 2025, pp. 1-6, DOI: 10.1109/VCRIS68011.2025.11250565.
+
+\vspace{1cm}
+
+\noindent [TQM2] Tuyen T. Nguyen, Minh Q. Tran, Hanh P. Du, Hai H. Le, Hoa N. Nguyen, ``HEDGE: A Gradient-Aware Hybrid Ensemble Defense Against Transferable Adversarial Evasion in Intrusion Detection and Prevention Systems,", submitted to \textbf{IEEE Transactions on Systems, Man, and Cybernetics: Systems}, 12/2025.
+    
+
+\newpage
+\addcontentsline{toc}{chapter}{Bibliography} 
+% \bibliographystyle{plainnat}
+\bibliographystyle{ieeetr}
+\bibliography{refs}
+
+\end{document}

@@ -10,3 +10,7 @@ graphify-out/
 *.log
 .agent
 .claude
+node_modules/
+datasets/
+agent/
+package-lock.json
