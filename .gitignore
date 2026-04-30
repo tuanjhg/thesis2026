@@ -13,3 +13,4 @@ graphify-out/
 node_modules/
 datasets/
 agent/
+package-lock.json
