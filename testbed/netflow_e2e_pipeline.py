@@ -32,11 +32,12 @@ class E2EEvaluator:
         self.stop_event = threading.Event()
         
         # 1. Khởi tạo 2 bộ não xử lý (AI và Ngưỡng tĩnh)
-        # eval_mode=True để bỏ qua các ràng buộc về thời gian thực của ONAP và dùng sim-latency
+        # Tắt shap_enabled để đảm bảo xử lý real-time mượt mà trên Mininet
         self.ai_orch = Orchestrator(
             model_dir=args.model_dir, 
             data_dir=args.data_dir, 
             eval_mode=True,
+            shap_enabled=args.shap, # Bật/tắt dựa trên tham số dòng lệnh
             latency_port=9298
         )
         self.base_orch = BaselineOrchestrator(
@@ -173,6 +174,7 @@ if __name__ == '__main__':
     parser.add_argument('--duration', type=int, default=60, help='Attack duration in seconds')
     parser.add_argument('--model-dir', default=str(_ROOT/'pad_onap_v3'/'models'))
     parser.add_argument('--data-dir', default=str(_ROOT/'pad_onap_v3'/'processed'))
+    parser.add_argument('--shap', action='store_true', help='Enable SHAP explainability (slows down processing)')
     args = parser.parse_args()
     
     # Check root
