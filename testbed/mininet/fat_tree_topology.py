@@ -40,7 +40,7 @@ import sys
 import time
 
 from mininet.net  import Mininet
-from mininet.node import Controller, OVSSwitch, RemoteController
+from mininet.node import Controller, OVSSwitch, RemoteController, OVSController
 from mininet.link import TCLink
 from mininet.log  import setLogLevel, info
 from mininet.cli  import CLI
@@ -71,8 +71,11 @@ def build_fat_tree(k: int = 4, use_remote_ctrl: bool = False) -> Mininet:
          f'(core={n_core}  agg={n_pods*agg_per_pod}  edge={n_pods*edge_per_pod}  '
          f'hosts={n_pods*edge_per_pod*hosts_per_ed})\n')
 
+    # Sử dụng OVSController để tránh lỗi "Cannot find required executable controller"
+    ctrl_node = RemoteController if use_remote_ctrl else OVSController
+
     net = Mininet(
-        controller = RemoteController if use_remote_ctrl else Controller,
+        controller = ctrl_node,
         switch     = OVSSwitch,
         link       = TCLink,
         autoSetMacs = True,
