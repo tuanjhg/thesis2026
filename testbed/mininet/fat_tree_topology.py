@@ -71,25 +71,21 @@ def build_fat_tree(k: int = 4, use_remote_ctrl: bool = False) -> Mininet:
          f'(core={n_core}  agg={n_pods*agg_per_pod}  edge={n_pods*edge_per_pod}  '
          f'hosts={n_pods*edge_per_pod*hosts_per_ed})\n')
 
-    # Sử dụng OVSController để tránh lỗi "Cannot find required executable controller"
-    ctrl_node = RemoteController if use_remote_ctrl else OVSController
-
+    # Chế độ Standalone: Không cần controller binary, switch tự học MAC
     net = Mininet(
-        controller = ctrl_node,
+        controller = RemoteController if use_remote_ctrl else None,
         switch     = OVSSwitch,
         link       = TCLink,
         autoSetMacs = True,
     )
     if use_remote_ctrl:
         net.addController('c0', ip='127.0.0.1', port=6633)
-    else:
-        net.addController('c0')
 
     # ── Core switches ────────────────────────────────────────────────────────
     core_sw = []
     for i in range(n_core):
         s = net.addSwitch(f'c{i+1}', protocols='OpenFlow13',
-                          dpid=_dpid(0x10, i))
+                          dpid=_dpid(0x10, i), failMode='standalone')
         core_sw.append(s)
 
     # ── Pods ─────────────────────────────────────────────────────────────────
@@ -99,11 +95,11 @@ def build_fat_tree(k: int = 4, use_remote_ctrl: bool = False) -> Mininet:
         edge_sw = []
         for a in range(agg_per_pod):
             s = net.addSwitch(f'a{p}_{a}', protocols='OpenFlow13',
-                              dpid=_dpid(0x20, p, a))
+                              dpid=_dpid(0x20, p, a), failMode='standalone')
             agg_sw.append(s)
         for e in range(edge_per_pod):
             s = net.addSwitch(f'e{p}_{e}', protocols='OpenFlow13',
-                              dpid=_dpid(0x30, p, e))
+                              dpid=_dpid(0x30, p, e), failMode='standalone')
             edge_sw.append(s)
 
         # edge ↔ hosts
