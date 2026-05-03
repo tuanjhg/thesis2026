@@ -106,25 +106,27 @@ class LatencyTracker:
     def start_server(self, port: int = METRICS_PORT) -> bool:
         """Start Prometheus HTTP metrics server. Returns True if successful."""
         try:
-            from prometheus_client import start_http_server, Gauge, Histogram, Summary
+            from prometheus_client import start_http_server, Gauge, Histogram, Summary, CollectorRegistry
+            registry = CollectorRegistry()
             self._gauges = {
-                'e2e_p50':  Gauge('pad_e2e_latency_p50_ms',   'E2E latency P50 (ms)'),
-                'e2e_p95':  Gauge('pad_e2e_latency_p95_ms',   'E2E latency P95 (ms)'),
-                'e2e_p99':  Gauge('pad_e2e_latency_p99_ms',   'E2E latency P99 (ms)'),
-                'd2p_p95':  Gauge('pad_det_to_policy_p95_ms', 'Detection→Policy P95 (ms)'),
-                'p2s_p95':  Gauge('pad_policy_to_so_p95_ms',  'Policy→SO P95 (ms)'),
-                's2v_p95':  Gauge('pad_so_to_vnf_p95_ms',     'SO→VNF-active P95 (ms)'),
-                'v2s_p95':  Gauge('pad_vnf_to_sfc_p95_ms',    'VNF→SFC P95 (ms)'),
-                'n_events': Gauge('pad_latency_events_total',  'Total latency events recorded'),
+                'e2e_p50':  Gauge('pad_e2e_latency_p50_ms',   'E2E latency P50 (ms)', registry=registry),
+                'e2e_p95':  Gauge('pad_e2e_latency_p95_ms',   'E2E latency P95 (ms)', registry=registry),
+                'e2e_p99':  Gauge('pad_e2e_latency_p99_ms',   'E2E latency P99 (ms)', registry=registry),
+                'd2p_p95':  Gauge('pad_det_to_policy_p95_ms', 'Detection→Policy P95 (ms)', registry=registry),
+                'p2s_p95':  Gauge('pad_policy_to_so_p95_ms',  'Policy→SO P95 (ms)', registry=registry),
+                's2v_p95':  Gauge('pad_so_to_vnf_p95_ms',     'SO→VNF-active P95 (ms)', registry=registry),
+                'v2s_p95':  Gauge('pad_vnf_to_sfc_p95_ms',    'VNF→SFC P95 (ms)', registry=registry),
+                'n_events': Gauge('pad_latency_events_total',  'Total latency events recorded', registry=registry),
                 # Per-tier histograms
                 'e2e_hist': Histogram(
                     'pad_e2e_latency_ms',
                     'E2E latency histogram (ms)',
                     buckets=[50, 100, 200, 500, 1000, 2000, 5000, 10000, 30000],
                     labelnames=['tier'],
+                    registry=registry,
                 ),
             }
-            start_http_server(port)
+            start_http_server(port, registry=registry)
             self._prom_ok = True
             logger.info(f"LatencyTracker: Prometheus metrics at :{port}/metrics")
             return True
