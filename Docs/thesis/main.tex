@@ -283,45 +283,6 @@ All references from relevant studies are explicitly sourced from the list of ref
 \newpage
 
 %══════════════════════════════════════════════════════════════════════
-%  ABSTRACT
-%══════════════════════════════════════════════════════════════════════
-\centerline{\bf AI-AUGMENTED NFV ORCHESTRATION FOR}
-\centerline{\bf PROACTIVE DDOS MITIGATION IN DATA CENTER NETWORKS}
-\vspace{10pt}
-\centerline{Nguyen Anh Tuan}
-\vspace{2cm}
-{\bf Abstract}
-\vspace{5pt}
-
-Distributed Denial-of-Service (DDoS) attacks against multi-tenant data-center networks continue to grow in both volume and sophistication, yet prevailing mitigation architectures remain fundamentally reactive: a mitigation Virtual Network Function (VNF) is instantiated only after the attack traffic has crossed a static threshold, imposing a hard latency floor equal to the VNF boot time---approximately six seconds for a full scrubber---during which the attack proceeds unchecked.
-
-This thesis proposes \textsc{PAD-ONAP} (\textit{Proactive Attack Defense over ONAP}), an AI-augmented Network Function Virtualization (NFV) orchestration pipeline that embeds multi-horizon machine-learning forecasting into an ONAP-compliant closed control loop. The system integrates four operational stages: a gNMI/NetFlow telemetry collector (S1), a 17-feature entropy and rate extractor (S2), a dual-track AI engine comprising an XGBoost seven-class detector and a Transformer--LSTM four-horizon forecaster ($t{+}30, 60, 90, 120$~seconds) (S3), and a five-tier graduated orchestration layer with a linear-programming multi-tenant SLA allocator and ONAP SO/CLAMP/Policy lifecycle management (S4). A canonical \texttt{AIOutputPayload} JSON schema published on DMaaP decouples the AI and orchestration layers, enabling independent evolution of each component.
-
-Evaluated on CICDDoS2019 under a strict temporal 80/20 train--test split, the XGBoost detector achieves 98.25\% accuracy, 96.42\% macro-F1, and 99.58\% macro AUC; the Transformer--LSTM forecaster attains AUC values ranging from 0.988 at $t{+}30$~s to 0.971 at $t{+}120$~s, exhibiting the monotonic horizon-degradation characteristic of a well-calibrated forecaster. On an eight-scenario orchestration benchmark, \textsc{PAD-ONAP} passes all 8/8 scenarios while a rule-based threshold baseline fails 2/8 on out-of-distribution traffic through over-escalation. Proactive pre-positioning at Tier~2 completes in 505~ms compared with 6,006~ms for reactive Tier~3 mitigation---a 10.9$\times$ speed-up---and the AI forecast pre-positions up to 135~seconds before the reactive path triggers. On gradual ramp attacks, the system demonstrates a 65-second lead-time advantage over the threshold baseline. Under all tested scenarios, tenant SLA floors (URLLC: 150~Mbps) are preserved by the LP allocator.
-
-To the best of our knowledge, \textsc{PAD-ONAP} is the first system to simultaneously combine ML-based multi-horizon DDoS forecasting, ONAP-compliant VNF lifecycle management, and LP-guaranteed multi-tenant SLA allocation within a single closed-loop orchestration pipeline.
-
-\vspace{1em}
-\noindent\textbf{Keywords:} DDoS mitigation; NFV orchestration; ONAP; proactive defense; multi-horizon forecasting; XGBoost; Transformer--LSTM; SLA guarantee; data-center networks.
-
-\newpage
-
-%══════════════════════════════════════════════════════════════════════
-%  TABLE OF CONTENTS / FIGURES / TABLES
-%══════════════════════════════════════════════════════════════════════
-\tableofcontents
-\newpage
-\listoffigures
-\newpage
-\listoftables
-\begingroup
-\listofalgorithms
-\let\clearpage\relax
-\endgroup
-
-\newpage
-
-%══════════════════════════════════════════════════════════════════════
 %  LIST OF ABBREVIATIONS
 %══════════════════════════════════════════════════════════════════════
 \chapter*{List of Abbreviations}
@@ -358,16 +319,32 @@ XGB   & XGBoost (eXtreme Gradient Boosting) \\ \hline
 \end{tabular}
 \end{table}
 
+\newpage
+
+%══════════════════════════════════════════════════════════════════════
+%  TABLE OF CONTENTS / FIGURES / TABLES
+%══════════════════════════════════════════════════════════════════════
+\tableofcontents
+\newpage
+\listoffigures
+\newpage
+\listoftables
+\begingroup
+\listofalgorithms
+\let\clearpage\relax
+\endgroup
+
+\newpage
+
+\newpage
+
 %══════════════════════════════════════════════════════════════════════
 %  CHAPTERS
 %══════════════════════════════════════════════════════════════════════
-\input{chapters/ch01_intro}
-\input{chapters/ch02_background}
-\input{chapters/ch03_related}
-\input{chapters/ch04_system}
-\input{chapters/ch05_ai}
-\input{chapters/ch06_evaluation}
-\input{chapters/ch07_conclusion}
+\input{chapters/ch01_background}
+\input{chapters/ch02_related}
+\input{chapters/ch03_proposed_method}
+\input{chapters/ch04_experiments}
 
 %══════════════════════════════════════════════════════════════════════
 %  BIBLIOGRAPHY

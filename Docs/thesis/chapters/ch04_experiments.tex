@@ -1,5 +1,5 @@
 %══════════════════════════════════════════════════════════════════════
-%  CHAPTER 6 — Experiments and Evaluation
+%  CHAPTER 4 — Experiments and Evaluation
 %══════════════════════════════════════════════════════════════════════
 \chapter{Experiments and Evaluation}
 \label{ch:eval}
@@ -10,8 +10,8 @@ by the evaluation harness, and the source file is cited inline to
 support independent reproducibility.
 
 %%─────────────────────────────────────────────────────────────────────
-\section{Experimental Setup}
-\label{sec:setup}
+\section{Implementation Details}
+\label{sec:implementation}
 
 \paragraph{Hardware.}
 All experiments were executed on a single workstation running Windows~11:
@@ -50,8 +50,8 @@ live Kubernetes interaction. Both are disclosed threats to validity;
 see Section~\ref{sec:validity}.
 
 %%─────────────────────────────────────────────────────────────────────
-\section{AI Component Metrics}
-\label{sec:ai-metrics-eval}
+\section{Evaluation Metrics}
+\label{sec:metrics}
 
 Table~\ref{tab:ai-metrics} recapitulates the AI metrics from Chapter~\ref{ch:ai}
 for reference during the scenario analysis.
@@ -83,8 +83,8 @@ Track & Metric & Value \\
 \end{table}
 
 %%─────────────────────────────────────────────────────────────────────
-\section{Scenario Suite: PAD-ONAP AI Orchestrator (S1--S8)}
-\label{sec:s1-s8}
+\section{Results and Evaluation}
+\label{sec:results}
 
 Eight scenarios stress the orchestrator across four axes: benign
 traffic (S1), volumetric attacks (S2, S3), OOD traffic (S4, S5),
@@ -367,7 +367,7 @@ produces \texttt{sla\_ok = false}. Invariant~\ref{inv:urllc} is
 empirically verified across all tested scenarios.
 
 %%─────────────────────────────────────────────────────────────────────
-\section{State-of-the-Art Comparison}
+\section{Comparison with State-of-the-Art Methods}
 \label{sec:sota}
 
 Table~\ref{tab:sota} compares \padonap{} against the seven closest
