@@ -48,7 +48,10 @@ from mininet.cli  import CLI
 
 HOST_LINK_BW_MBPS = 1000   # edge ↔ host
 EDGE_LINK_BW_MBPS = 1000   # edge ↔ agg
-CORE_LINK_BW_MBPS = 10000  # agg ↔ core  (10 GbE)
+CORE_LINK_BW_MBPS = 1000   # agg ↔ core — capped at TCLink/HTB max (1 Gbps)
+                           # nominally 10 GbE in fat-tree spec, but TCLink
+                           # silently ignores >1000 → kept at 1000 to keep
+                           # rate-limit semantics consistent and logs clean.
 LINK_DELAY        = '0.1ms'
 
 

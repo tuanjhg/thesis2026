@@ -76,6 +76,22 @@ class E2EEvaluator:
         net = build_fat_tree(k=self.args.k)
         net.start()
         time.sleep(3) # Đợi mạng ổn định
+        
+        # Pre-check: tool availability
+        h1 = net.get('h1')
+        tools = ['softflowd', 'iperf', 'hping3', 'curl']
+        missing = []
+        for tool in tools:
+            check = h1.cmd(f'which {tool} 2>&1')
+            if not check.strip() or 'not found' in check:
+                missing.append(tool)
+        
+        if missing:
+            logger.error(f"❌ FATAL: Các công cụ sau chưa được cài đặt: {', '.join(missing)}")
+            logger.error("   Cài đặt: sudo apt-get update && sudo apt-get install -y softflowd iperf hping3 curl")
+            net.stop()
+            sys.exit(1)
+        logger.info("✓ Tools check: OK (softflowd, iperf, hping3, curl)")
 
         # h0 is the collector host. Pipeline runs in root namespace and polls
         # the collector via h0.cmd("curl ...") because hosts share an isolated
@@ -87,10 +103,26 @@ class E2EEvaluator:
 
         logger.info(f"*** Khởi động NetFlow Collector trên {collector.name} ({collector_ip}:7070)")
         collector_script = _ROOT / 'testbed' / 'netflow_collector' / 'collector.py'
-        collector.cmd(
-            f'python3 {collector_script} --mode netflow --port 6343 '
-            f'--api-port 7070 --interval {self.window_sec} > /tmp/collector.log 2>&1 &'
-        )
+        
+        # Debug: Kiểm tra sự tồn tại của file và in lệnh
+        logger.info(f"DEBUG: Collector script path: {collector_script}")
+        if not collector_script.exists():
+            logger.error(f"❌ LỖI: Không tìm thấy file collector tại {collector_script}")
+        
+        cmd = (f'python3 "{collector_script}" --mode netflow --port 6343 '
+               f'--api-port 7070 --interval {self.window_sec} > /tmp/collector.log 2>&1 &')
+        logger.info(f"DEBUG: Running cmd: {cmd}")
+        
+        collector.cmd(cmd)
+        logger.info(f"    [Collector logs ghi tại /tmp/collector.log]")
+        time.sleep(2)
+        
+        # Health check: collector should be responsive
+        health = collector.cmd("curl -s --max-time 1 http://127.0.0.1:7070/health 2>&1")
+        if "ok" in health or "buffered" in health:
+            logger.info(f"    ✓ Collector health check passed: {health.strip()}")
+        else:
+            logger.warning(f"    ⚠  Collector health check failed: {health.strip()}")
         time.sleep(2)
 
         attacker, victim = attacker_victim(net)
@@ -99,13 +131,25 @@ class E2EEvaluator:
         # softflowd: -t maxlife=10 forces flow export every ≤10s so the 5s
         # collector window has data; expint=5 flushes the cache too.
         logger.info(f"*** Khởi động softflowd trên các hosts (gửi về {collector_ip}:6343)")
+        
+        # Check if softflowd is available
+        check_cmd = net.get('h1').cmd('which softflowd')
+        if not check_cmd.strip():
+            logger.warning("⚠  softflowd không được cài đặt! Các dòng flow sẽ không được capture.")
+            logger.warning("   Cài: apt-get install -y softflowd")
+        
         for host in net.hosts:
             if host.name == collector.name:  # Skip collector host
                 continue
-            host.cmd(
-                f'softflowd -i {host.intf().name} -n {collector_ip}:6343 '
-                f'-v 5 -t maxlife=10 -t expint=5 -d &'
-            )
+            try:
+                cmd = (
+                    f'softflowd -i {host.intf().name} -n {collector_ip}:6343 '
+                    f'-v 5 -t maxlife=10 -t expint=5 &'
+                )
+                host.cmd(cmd)
+                logger.info(f"   {host.name}: softflowd started")
+            except Exception as e:
+                logger.error(f"   {host.name}: Failed to start softflowd: {e}")
 
         # Baseline background traffic (h1 → h14, 10 Mbps UDP) so softflowd has
         # flows to export during Phase 1; gives the AI a Normal-class signal.
@@ -186,11 +230,18 @@ class E2EEvaluator:
         raw = host.cmd(
             "curl -s --max-time 1 http://127.0.0.1:7070/flows/latest"
         ).strip()
-        if not raw or not raw.startswith("{"):
+        
+        if not raw:
+            logger.debug("[collect] Empty response from collector")
             return
+        if not raw.startswith("{"):
+            logger.debug(f"[collect] Invalid response (no JSON): {raw[:100]}")
+            return
+        
         try:
             vec = json.loads(raw)
-        except Exception:
+        except Exception as e:
+            logger.debug(f"[collect] JSON parse error: {e}")
             return
         ts = vec.get('timestamp')
         if ts is None or ts == self._last_vec_ts:
@@ -206,7 +257,7 @@ class E2EEvaluator:
     # ── iperf log parsing ────────────────────────────────────────────────────
     _IPERF_LINE = re.compile(
         r'\[\s*\d+\]\s+([\d.]+)-\s*([\d.]+)\s*sec\s+'
-        r'[\d.]+\s+\w+\s+([\d.]+)\s+Mbits/sec'
+        r'[\d.]+\s+\w+\s+([\d.]+)\s+([KMG])bits/sec'
         r'(?:\s+[\d.]+\s+ms\s+\d+/\s*\d+\s+\(([\d.]+)%\))?'
     )
 
@@ -214,7 +265,7 @@ class E2EEvaluator:
         """
         Parse iperf -i 1 stdout. Returns list of dicts:
             {'t_offset': sec, 'mbps': float, 'lost_pct': float|None, 'epoch': float}
-        Skips the aggregate line (which spans 0 → total seconds).
+        Converts Kbits/Mbits/Gbits to Mbps. Skips aggregate line (which spans 0 → total seconds).
         """
         out = []
         if not os.path.exists(path):
@@ -226,13 +277,22 @@ class E2EEvaluator:
                     m = self._IPERF_LINE.search(line)
                     if not m:
                         continue
-                    t_start, t_end, mbps, lost = m.groups()
+                    t_start, t_end, rate_val, rate_unit, lost = m.groups()
                     t_s, t_e = float(t_start), float(t_end)
                     if (t_e - t_s) > max_window:
                         continue   # skip total/aggregate line
+                    
+                    # Convert rate to Mbps
+                    rate = float(rate_val)
+                    if rate_unit == 'K':
+                        rate = rate / 1000.0  # Kbits → Mbps
+                    elif rate_unit == 'G':
+                        rate = rate * 1000.0  # Gbits → Mbps
+                    # else: 'M' → already in Mbps
+                    
                     out.append({
                         't_offset': t_e,
-                        'mbps':     float(mbps),
+                        'mbps':     rate,
                         'lost_pct': float(lost) if lost else None,
                         'epoch':    self._iperf_t0 + t_e,
                     })
@@ -337,6 +397,12 @@ class E2EEvaluator:
         logger.info(f"[iperf] legit={len(legit_series)}  victim={len(victim_series)}  bg={len(bg_series)} samples")
 
         metrics = self._compute_metrics(legit_series, victim_series)
+
+        if metrics['n_windows'] == 0:
+            logger.error("❌ LỖI: Không thu thập được cửa sổ dữ liệu nào (n_windows=0)!")
+            logger.error("   Vui lòng kiểm tra log collector: cat /tmp/collector.log")
+            logger.error("   Và đảm bảo traffic đang chảy (check iperf logs trong /tmp)")
+            return
 
         # Time axis: prefer real epochs (relative to attack start = 0); fall
         # back to fixed-window approximation if timestamps missing.
