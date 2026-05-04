@@ -59,6 +59,18 @@ class E2EEvaluator:
         
         print(f"Window {len(self.results_ai):03d} | AI: T{res_ai['tier']} ({'Proactive' if res_ai['proactive'] else 'Normal'}) | Base: T{res_base['tier']}")
 
+    def run_root_namespace_collector(self):
+        """Run the NetFlow collector directly in the root namespace."""
+        self.collector_url = "http://localhost:7070"
+        collector_script = _ROOT / 'testbed' / 'netflow_collector' / 'collector.py'
+
+        logger.info(f"*** Starting NetFlow Collector on localhost:7070")
+        os.system(
+            f'python3 {collector_script} --mode netflow --port 6343 '
+            f'--api-port 7070 --interval {self.window_sec} > /tmp/collector.log 2>&1 &'
+        )
+        time.sleep(2)
+
     def run_mininet_test(self):
         # Import Mininet bên trong để tránh lỗi trên Windows nếu chỉ check code
         from mininet.net import Mininet
@@ -184,14 +196,15 @@ if __name__ == '__main__':
     parser.add_argument('--data-dir', default=str(_ROOT/'pad_onap_v3'/'processed'))
     parser.add_argument('--shap', action='store_true', help='Enable SHAP explainability (slows down processing)')
     args = parser.parse_args()
-    
+
     # Check root
     if os.name != 'nt' and os.geteuid() != 0:
         print("\n[!] ERROR: Script này phải chạy bằng 'sudo' để khởi tạo Mininet.\n")
         sys.exit(1)
-        
+
     evaluator = E2EEvaluator(args)
     try:
+        evaluator.run_root_namespace_collector()
         evaluator.run_mininet_test()
     except KeyboardInterrupt:
         logger.info("Dừng script bởi người dùng.")
