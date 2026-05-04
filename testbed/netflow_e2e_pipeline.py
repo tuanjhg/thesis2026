@@ -5,7 +5,7 @@ PAD-ONAP: Real NetFlow E2E Evaluation Pipeline
 So sánh hiệu năng AI (Proactive) vs Threshold (Reactive) trên Mininet.
 Dữ liệu được trích xuất từ packet thật (softflowd) và chạy qua 2 bộ điều phối.
 """
-import os, sys, time, json, threading, logging, argparse
+import os, sys, time, json, threading, logging, argparse, socket
 from pathlib import Path
 from datetime import datetime
 import numpy as np
