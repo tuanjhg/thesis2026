@@ -106,7 +106,10 @@ def build_fat_tree(k: int = 4, use_remote_ctrl: bool = False) -> Mininet:
         for e_idx, edge in enumerate(edge_sw):
             for h in range(hosts_per_ed):
                 host_id = len(all_hosts)
-                ip = f'10.{p}.{e_idx}.{h+1}/24'
+                # /8 prefix: all hosts share one broadcast domain so OVS
+                # standalone MAC-learning forwards cross-pod traffic without
+                # needing a gateway. Switch/link layout (fat-tree) unchanged.
+                ip = f'10.{p}.{e_idx}.{h+1}/8'
                 host = net.addHost(f'h{host_id}', ip=ip)
                 net.addLink(host, edge,
                             bw=HOST_LINK_BW_MBPS, delay=LINK_DELAY)

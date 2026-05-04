@@ -20,12 +20,13 @@ metadata:
   namespace: pad-onap
 data:
   PAD_ONAP_STUB:          "false"
-  PAD_ONAP_SO_URL:        "http://so.onap.svc.cluster.local:8080"
+  PAD_BYPASS_DMAAP:       "true"
+  PAD_ONAP_SO_URL:        "http://10.152.183.81:30277"
   PAD_DMAAP_HOST:         "message-router.onap.svc.cluster.local"
   PAD_DMAAP_PORT:         "3904"
   PAD_DMAAP_TOPIC:        "PAD_ONAP_AI_SIGNALS"
   PAD_DMAAP_USE_KAFKA:    "false"
-  PAD_ONAP_POLICY_URL:    "http://policy-pap.onap.svc.cluster.local:6969"
+  PAD_ONAP_POLICY_URL:    "http://10.152.183.232:30769"
   PAD_OVS_BRIDGE:         "br-pad"
   PAD_SDN_URL:            "http://sdnr.onap.svc.cluster.local:8282"
   PAD_GNMI_PORT:          "8080"
@@ -96,10 +97,16 @@ spec:
         # Wait for DMaaP to be ready before starting
         - name: wait-dmaap
           image: busybox:1.36
+          envFrom:
+            - configMapRef:
+                name: pad-onap-config
           command:
             - sh
             - -c
             - |
+              if [ "${PAD_BYPASS_DMAAP}" = "true" ]; then
+                echo "DMaaP bypass enabled — skipping wait"; exit 0;
+              fi
               until nc -z message-router.onap.svc.cluster.local 3904; do
                 echo "waiting for DMaaP..."; sleep 5;
               done

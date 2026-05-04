@@ -37,6 +37,7 @@ SO_PASS             = os.environ.get("PAD_ONAP_SO_PASS",         "demo123456!")
 POLICY_USER         = os.environ.get("PAD_ONAP_POLICY_USER",     "healthcheck")
 POLICY_PASS         = os.environ.get("PAD_ONAP_POLICY_PASS",     "zb!XztG34")
 DMAAP_TOPIC         = os.environ.get("PAD_DMAAP_TOPIC",          "PAD_ONAP_AI_SIGNALS")
+BYPASS_DMAAP        = os.environ.get("PAD_BYPASS_DMAAP",         "false").lower() == "true"
 TIMEOUT             = 10
 
 
@@ -192,9 +193,12 @@ def main():
     check_so_api(host)
 
     print("\n[ONAP DMaaP]")
-    check_dmaap_health(host)
-    check_dmaap_topic(host)
-    check_dmaap_publish(host)
+    if BYPASS_DMAAP:
+        print("  [SKIP] PAD_BYPASS_DMAAP=true — skipping DMaaP checks")
+    else:
+        check_dmaap_health(host)
+        check_dmaap_topic(host)
+        check_dmaap_publish(host)
 
     print("\n[ONAP Policy]")
     check_policy_health(host)

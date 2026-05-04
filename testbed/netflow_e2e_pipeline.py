@@ -17,7 +17,7 @@ sys.path.insert(0, str(_ROOT))
 
 from pipeline.s4_orchestration.orchestrator import Orchestrator
 from evaluation.baseline_threshold import BaselineOrchestrator
-from pipeline.s3_ai.live_pipeline import fetch_latest, features_dict_to_array
+from pipeline.s3_ai.live_pipeline import features_dict_to_array
 
 # Thiết lập log
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
@@ -32,6 +32,7 @@ class E2EEvaluator:
         self.stop_event = threading.Event()
         self.window_sec = 5.0
         self.collector_url = None
+        self.collector_host = None
         self._last_vec_ts = None
         
         # 1. Khởi tạo 2 bộ não xử lý (AI và Ngưỡng tĩnh)
@@ -59,33 +60,24 @@ class E2EEvaluator:
         
         print(f"Window {len(self.results_ai):03d} | AI: T{res_ai['tier']} ({'Proactive' if res_ai['proactive'] else 'Normal'}) | Base: T{res_base['tier']}")
 
-    def run_root_namespace_collector(self):
-        """Run the NetFlow collector directly in the root namespace."""
-        self.collector_url = "http://localhost:7070"
-        collector_script = _ROOT / 'testbed' / 'netflow_collector' / 'collector.py'
-
-        logger.info(f"*** Starting NetFlow Collector on localhost:7070")
-        os.system(
-            f'python3 {collector_script} --mode netflow --port 6343 '
-            f'--api-port 7070 --interval {self.window_sec} > /tmp/collector.log 2>&1 &'
-        )
-        time.sleep(2)
-
     def run_mininet_test(self):
         # Import Mininet bên trong để tránh lỗi trên Windows nếu chỉ check code
         from mininet.net import Mininet
         from testbed.mininet.fat_tree_topology import build_fat_tree, attacker_victim
-        
+
         logger.info(f"*** Khởi tạo Mininet Fat-Tree k={self.args.k}")
         net = build_fat_tree(k=self.args.k)
         net.start()
         time.sleep(3) # Đợi mạng ổn định
-        
-        # Use h0 as the collector host (it's typically idle in most scenarios)
+
+        # h0 is the collector host. Pipeline runs in root namespace and polls
+        # the collector via h0.cmd("curl ...") because hosts share an isolated
+        # netns whose 127.0.0.1 is not reachable from root.
         collector = net.get('h0')
         collector_ip = collector.IP()
-        self.collector_url = f"http://{collector_ip}:7070"
-        
+        self.collector_host = collector
+        self.collector_url  = "http://127.0.0.1:7070"
+
         logger.info(f"*** Khởi động NetFlow Collector trên {collector.name} ({collector_ip}:7070)")
         collector_script = _ROOT / 'testbed' / 'netflow_collector' / 'collector.py'
         collector.cmd(
@@ -93,23 +85,35 @@ class E2EEvaluator:
             f'--api-port 7070 --interval {self.window_sec} > /tmp/collector.log 2>&1 &'
         )
         time.sleep(2)
-        
+
         attacker, victim = attacker_victim(net)
         logger.info(f"*** Attacker: {attacker.name} -> Victim: {victim.name}")
-        
-        # Bật softflowd trên tất cả host (trừ collector) để xuất packet thật thành NetFlow v5
+
+        # softflowd: -t maxlife=10 forces flow export every ≤10s so the 5s
+        # collector window has data; expint=5 flushes the cache too.
         logger.info(f"*** Khởi động softflowd trên các hosts (gửi về {collector_ip}:6343)")
         for host in net.hosts:
             if host.name == collector.name:  # Skip collector host
                 continue
             host.cmd(
-                f'softflowd -i {host.intf().name} -n {collector_ip}:6343 -v 5 -d &'
+                f'softflowd -i {host.intf().name} -n {collector_ip}:6343 '
+                f'-v 5 -t maxlife=10 -t expint=5 -d &'
             )
+
+        # Baseline background traffic (h1 → h14, 10 Mbps UDP) so softflowd has
+        # flows to export during Phase 1; gives the AI a Normal-class signal.
+        bg_src = net.get('h1')
+        bg_dst = net.get('h14')
+        bg_dst.cmd('iperf -s -u > /tmp/iperf_bg.log 2>&1 &')
+        time.sleep(0.5)
+        bg_src.cmd(f'iperf -c {bg_dst.IP()} -u -b 10M -t 9999 > /tmp/iperf_bg_cli.log 2>&1 &')
+        self._bg_pair = (bg_src, bg_dst)
 
         logger.info(">>> Phase 1: Baseline (Normal traffic) - 30 giây")
         t_start = time.time()
         while time.time() - t_start < 30:
             self._collect_and_step()
+            time.sleep(1.0)
 
         logger.info(f">>> Phase 2: UDP Flood Attack - {self.args.duration} giây")
         # Sử dụng hping3 flood thật sự
@@ -117,23 +121,45 @@ class E2EEvaluator:
         t_attack = time.time()
         while time.time() - t_attack < self.args.duration:
             self._collect_and_step()
+            time.sleep(1.0)
 
         logger.info(">>> Phase 3: Recovery (Ngừng tấn công) - 20 giây")
         attacker.cmd('pkill hping3')
         t_stop = time.time()
         while time.time() - t_stop < 20:
             self._collect_and_step()
+            time.sleep(1.0)
 
         logger.info("*** Kết thúc kiểm thử. Dừng Mininet.")
+        # Cleanup background processes before tearing down
+        try:
+            bg_src.cmd('pkill iperf')
+            bg_dst.cmd('pkill iperf')
+            for host in net.hosts:
+                host.cmd('pkill softflowd')
+            collector.cmd('pkill -f netflow_collector/collector.py')
+        except Exception as e:
+            logger.warning(f"Cleanup warning: {e}")
         net.stop()
         self.generate_report()
 
     def _collect_and_step(self):
-        """Fetch latest feature vector from collector HTTP API and run AI step."""
-        if not self.collector_url:
+        """
+        Fetch latest feature vector from the collector running inside h0's
+        netns. Pipeline lives in the root namespace, so we shell into h0
+        via Mininet's `host.cmd()` rather than direct HTTP.
+        """
+        host = getattr(self, 'collector_host', None)
+        if host is None:
             return
-        vec = fetch_latest(self.collector_url, timeout=1.0)
-        if not vec:
+        raw = host.cmd(
+            "curl -s --max-time 1 http://127.0.0.1:7070/flows/latest"
+        ).strip()
+        if not raw or not raw.startswith("{"):
+            return
+        try:
+            vec = json.loads(raw)
+        except Exception:
             return
         ts = vec.get('timestamp')
         if ts is None or ts == self._last_vec_ts:
@@ -204,7 +230,6 @@ if __name__ == '__main__':
 
     evaluator = E2EEvaluator(args)
     try:
-        evaluator.run_root_namespace_collector()
         evaluator.run_mininet_test()
     except KeyboardInterrupt:
         logger.info("Dừng script bởi người dùng.")
