@@ -66,37 +66,29 @@ class E2EEvaluator:
         
         logger.info(f"*** Khởi tạo Mininet Fat-Tree k={self.args.k}")
         net = build_fat_tree(k=self.args.k)
-
-        edge = net.get('e0_0')
-        collector = net.addHost('collector', ip='10.0.0.250/24')
-        net.addLink(collector, edge)
-
-        root = net.addHost('root', inNamespace=False, ip='10.0.0.254/24')
-        net.addLink(root, edge)
-
         net.start()
-        root_intf = root.intf()
-        if root_intf:
-            root.setIP('10.0.0.254/24', intf=root_intf.name)
         time.sleep(3) # Đợi mạng ổn định
-
+        
+        # Use h0 as the collector host (it's typically idle in most scenarios)
+        collector = net.get('h0')
         collector_ip = collector.IP()
         self.collector_url = f"http://{collector_ip}:7070"
-
+        
+        logger.info(f"*** Khởi động NetFlow Collector trên {collector.name} ({collector_ip}:7070)")
         collector_script = _ROOT / 'testbed' / 'netflow_collector' / 'collector.py'
         collector.cmd(
             f'python3 {collector_script} --mode netflow --port 6343 '
-            f'--api-port 7070 --interval {self.window_sec} &'
+            f'--api-port 7070 --interval {self.window_sec} > /tmp/collector.log 2>&1 &'
         )
         time.sleep(2)
         
         attacker, victim = attacker_victim(net)
         logger.info(f"*** Attacker: {attacker.name} -> Victim: {victim.name}")
         
-        # Bật softflowd trên tất cả host để xuất packet thật thành NetFlow v5
-        logger.info("*** Khởi động softflowd trên các hosts...")
+        # Bật softflowd trên tất cả host (trừ collector) để xuất packet thật thành NetFlow v5
+        logger.info(f"*** Khởi động softflowd trên các hosts (gửi về {collector_ip}:6343)")
         for host in net.hosts:
-            if host.name in {'collector', 'root'}:
+            if host.name == collector.name:  # Skip collector host
                 continue
             host.cmd(
                 f'softflowd -i {host.intf().name} -n {collector_ip}:6343 -v 5 -d &'
