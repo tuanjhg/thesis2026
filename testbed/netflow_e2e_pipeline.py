@@ -73,6 +73,15 @@ class E2EEvaluator:
         from testbed.mininet.fat_tree_topology import build_fat_tree, attacker_victim
 
         logger.info(f"*** Khởi tạo Mininet Fat-Tree k={self.args.k}")
+        # Dọn dẹp môi trường cũ trước khi bắt đầu
+        os.system("sudo mn -c > /dev/null 2>&1")
+        # Use pkill -f to ensure we match the full command line (e.g. "python3 collector.py")
+        os.system("pkill -9 -f iperf > /dev/null 2>&1")
+        os.system("pkill -9 -f iperf3 > /dev/null 2>&1")
+        os.system("pkill -9 -f softflowd > /dev/null 2>&1")
+        os.system("pkill -9 -f hping3 > /dev/null 2>&1")
+        os.system("pkill -9 -f collector.py > /dev/null 2>&1")
+        
         net = build_fat_tree(k=self.args.k)
         net.start()
         time.sleep(3) # Đợi mạng ổn định
@@ -109,20 +118,31 @@ class E2EEvaluator:
         if not collector_script.exists():
             logger.error(f"❌ LỖI: Không tìm thấy file collector tại {collector_script}")
         
-        cmd = (f'python3 "{collector_script}" --mode netflow --port 6343 '
+        # Giải phóng port triệt để
+        collector.cmd("fuser -k 7070/tcp 6343/udp 2>/dev/null")
+        time.sleep(1)
+
+        cmd = (f'python3 -u "{collector_script}" --mode netflow --port 6343 '
                f'--api-port 7070 --interval {self.window_sec} > /tmp/collector.log 2>&1 &')
         logger.info(f"DEBUG: Running cmd: {cmd}")
         
         collector.cmd(cmd)
         logger.info(f"    [Collector logs ghi tại /tmp/collector.log]")
-        time.sleep(2)
+        time.sleep(5) # Tăng thêm thời gian để collector tạo window đầu tiên
         
         # Health check: collector should be responsive
-        health = collector.cmd("curl -s --max-time 1 http://127.0.0.1:7070/health 2>&1")
-        if "ok" in health or "buffered" in health:
+        health = collector.cmd("curl -s --max-time 2 http://127.0.0.1:7070/health")
+        if "ok" in health:
             logger.info(f"    ✓ Collector health check passed: {health.strip()}")
         else:
-            logger.warning(f"    ⚠  Collector health check failed: {health.strip()}")
+            logger.warning(f"    ⚠  Collector health check failed (Result: '{health.strip()}').")
+            logger.warning(f"       Kiểm tra log: cat /tmp/collector.log")
+            # Extra diagnostic: check if process is even running
+            ps_check = collector.cmd("ps aux | grep collector.py | grep -v grep")
+            if not ps_check.strip():
+                logger.error("       ERROR: Collector process is NOT running.")
+            else:
+                logger.info(f"       INFO: Collector process seems to be running: {ps_check.strip()[:100]}...")
         time.sleep(2)
 
         attacker, victim = attacker_victim(net)
@@ -168,8 +188,11 @@ class E2EEvaluator:
         # on h15 binds UDP 5001; hping3 flood targets port 80, so the two
         # streams are isolated at L4.
         legit_src = net.get('h2')
-        victim.cmd(f'iperf -s -u -i 1 > {self.log_victim} 2>&1 &')
+        # Ensure ports are free on hosts
+        victim.cmd("fuser -k 5001/udp 2>/dev/null")
         time.sleep(0.5)
+        victim.cmd(f'iperf -s -u -i 1 > {self.log_victim} 2>&1 &')
+
         legit_src.cmd(
             f'iperf -c {victim.IP()} -u -b 5M -t 9999 -i 1 '
             f'> {self.log_legit} 2>&1 &'
@@ -204,12 +227,12 @@ class E2EEvaluator:
         logger.info("*** Kết thúc kiểm thử. Dừng Mininet.")
         # Cleanup background processes before tearing down
         try:
-            bg_src.cmd('pkill iperf')
-            bg_dst.cmd('pkill iperf')
-            legit_src.cmd('pkill iperf')
-            victim.cmd('pkill iperf')
+            bg_src.cmd('pkill -f iperf')
+            bg_dst.cmd('pkill -f iperf')
+            legit_src.cmd('pkill -f iperf')
+            victim.cmd('pkill -f iperf')
             for host in net.hosts:
-                host.cmd('pkill softflowd')
+                host.cmd('pkill -f softflowd')
             collector.cmd('pkill -f netflow_collector/collector.py')
         except Exception as e:
             logger.warning(f"Cleanup warning: {e}")

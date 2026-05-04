@@ -417,7 +417,8 @@ class CollectorHandler(BaseHTTPRequestHandler):
             if latest:
                 self._json(200, latest)
             else:
-                self._json(204, {'error': 'No data yet'})
+                # 204 should not have a body, use 200 with error info for easier parsing
+                self._json(200, {'error': 'No data yet', 'status': 'waiting'})
         else:
             self._json(404, {'error': 'Not found'})
 
@@ -446,9 +447,16 @@ def main():
     args = parser.parse_args()
 
     # Start REST API
-    api = HTTPServer(('0.0.0.0', args.api_port), CollectorHandler)
-    threading.Thread(target=api.serve_forever, daemon=True).start()
-    print(f'[Collector] REST API: http://localhost:{args.api_port}/flows/latest')
+    try:
+        api = HTTPServer(('0.0.0.0', args.api_port), CollectorHandler)
+        threading.Thread(target=api.serve_forever, daemon=True).start()
+        print(f'[Collector] REST API started at http://0.0.0.0:{args.api_port}')
+        print(f'[Collector] Health check: http://0.0.0.0:{args.api_port}/health')
+    except Exception as e:
+        print(f'[Collector] FATAL: Failed to start API server on port {args.api_port}: {e}')
+        print(f'[Collector] Tip: Check if another process is using port {args.api_port} (sudo fuser {args.api_port}/tcp)')
+        return
+
 
     if args.mode == 'synthetic':
         print(f'[Collector] Mode: synthetic (gNMI={args.gnmi})')
@@ -466,25 +474,41 @@ def main():
     else:
         print(f'[Collector] Mode: NetFlow v5 UDP :{args.port}')
         extractor = FlowFeatureExtractor(window_sec=5.0)
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        sock.bind(('0.0.0.0', args.port))
-        sock.settimeout(1.0)
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            sock.bind(('0.0.0.0', args.port))
+            sock.settimeout(1.0)
+            print(f'[Collector] Successfully bound to UDP :{args.port}')
+        except Exception as e:
+            print(f'[Collector] FATAL: Failed to bind UDP port {args.port}: {e}')
+            return
 
         last_compute = time.time()
+        print(f'[Collector] Entering collection loop (interval={args.interval}s)...')
         while True:
             try:
                 data, addr = sock.recvfrom(65535)
                 flows = parse_netflow_v5(data)
                 if flows:
                     extractor.add_flows(flows)
-                    print(f'[Collector] Received {len(flows)} flows from {addr[0]}')
+                    # Debug print only every few flows to avoid log spam
+                    if time.time() % 5 < 0.1: 
+                        print(f'[Collector] Received {len(flows)} flows from {addr[0]}')
             except socket.timeout:
                 pass
+            except Exception as e:
+                print(f'[Collector] ERROR in receiver loop: {e}')
+                time.sleep(1)
 
             if time.time() - last_compute >= args.interval:
-                vec = extractor.compute()
-                if vec:
-                    _append_feature(vec)
+                try:
+                    vec = extractor.compute()
+                    if vec:
+                        _append_feature(vec)
+                        # Periodic status update
+                        print(f'[Collector] Computed window: {vec["n_flows"]} flows, {len(_feature_history)} windows in buffer')
+                except Exception as e:
+                    print(f'[Collector] ERROR in computation: {e}')
                 last_compute = time.time()
 
 
