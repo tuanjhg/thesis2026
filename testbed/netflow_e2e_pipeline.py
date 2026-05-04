@@ -5,7 +5,7 @@ PAD-ONAP: Real NetFlow E2E Evaluation Pipeline
 So sánh hiệu năng AI (Proactive) vs Threshold (Reactive) trên Mininet.
 Dữ liệu được trích xuất từ packet thật (softflowd) và chạy qua 2 bộ điều phối.
 """
-import os, sys, time, json, threading, logging, argparse
+import os, re, sys, time, json, threading, logging, argparse
 from pathlib import Path
 from datetime import datetime
 import numpy as np
@@ -34,6 +34,13 @@ class E2EEvaluator:
         self.collector_url = None
         self.collector_host = None
         self._last_vec_ts = None
+        # Phase boundaries (epoch seconds), filled by run_mininet_test
+        self.phase_t = {'baseline': 0.0, 'attack': 0.0, 'recovery': 0.0, 'end': 0.0}
+        # Paths to iperf logs (in /tmp inside Mininet host netns, but Mininet
+        # hosts share the root filesystem so we can read them from root)
+        self.log_legit  = '/tmp/iperf_legit.log'   # legit user h2 → victim h15
+        self.log_victim = '/tmp/iperf_victim.log'  # iperf -s on victim
+        self.log_bg     = '/tmp/iperf_bg_cli.log'  # h1 → h14 background
         
         # 1. Khởi tạo 2 bộ não xử lý (AI và Ngưỡng tĩnh)
         # Tắt shap_enabled để đảm bảo xử lý real-time mượt mà trên Mininet
@@ -104,42 +111,66 @@ class E2EEvaluator:
         # flows to export during Phase 1; gives the AI a Normal-class signal.
         bg_src = net.get('h1')
         bg_dst = net.get('h14')
-        bg_dst.cmd('iperf -s -u > /tmp/iperf_bg.log 2>&1 &')
+        bg_dst.cmd('iperf -s -u -i 1 > /tmp/iperf_bg.log 2>&1 &')
         time.sleep(0.5)
-        bg_src.cmd(f'iperf -c {bg_dst.IP()} -u -b 10M -t 9999 > /tmp/iperf_bg_cli.log 2>&1 &')
+        bg_src.cmd(
+            f'iperf -c {bg_dst.IP()} -u -b 10M -t 9999 -i 1 '
+            f'> {self.log_bg} 2>&1 &'
+        )
         self._bg_pair = (bg_src, bg_dst)
 
+        # Legitimate user h2 → victim h15: stays on throughout. We measure how
+        # much of this user's goodput survives during the attack. iperf server
+        # on h15 binds UDP 5001; hping3 flood targets port 80, so the two
+        # streams are isolated at L4.
+        legit_src = net.get('h2')
+        victim.cmd(f'iperf -s -u -i 1 > {self.log_victim} 2>&1 &')
+        time.sleep(0.5)
+        legit_src.cmd(
+            f'iperf -c {victim.IP()} -u -b 5M -t 9999 -i 1 '
+            f'> {self.log_legit} 2>&1 &'
+        )
+        self._legit_pair = (legit_src, victim)
+        # Truncate log mtimes so iperf parser can locate "test start = 0s".
+        # All four iperf processes started within ~1 s of each other.
+        self._iperf_t0 = time.time()
+
         logger.info(">>> Phase 1: Baseline (Normal traffic) - 30 giây")
-        t_start = time.time()
-        while time.time() - t_start < 30:
+        self.phase_t['baseline'] = time.time()
+        while time.time() - self.phase_t['baseline'] < 30:
             self._collect_and_step()
             time.sleep(1.0)
 
         logger.info(f">>> Phase 2: UDP Flood Attack - {self.args.duration} giây")
         # Sử dụng hping3 flood thật sự
         attacker.cmd(f'hping3 --udp --flood -p 80 {victim.IP()} &')
-        t_attack = time.time()
-        while time.time() - t_attack < self.args.duration:
+        self.phase_t['attack'] = time.time()
+        while time.time() - self.phase_t['attack'] < self.args.duration:
             self._collect_and_step()
             time.sleep(1.0)
 
         logger.info(">>> Phase 3: Recovery (Ngừng tấn công) - 20 giây")
         attacker.cmd('pkill hping3')
-        t_stop = time.time()
-        while time.time() - t_stop < 20:
+        self.phase_t['recovery'] = time.time()
+        while time.time() - self.phase_t['recovery'] < 20:
             self._collect_and_step()
             time.sleep(1.0)
+        self.phase_t['end'] = time.time()
 
         logger.info("*** Kết thúc kiểm thử. Dừng Mininet.")
         # Cleanup background processes before tearing down
         try:
             bg_src.cmd('pkill iperf')
             bg_dst.cmd('pkill iperf')
+            legit_src.cmd('pkill iperf')
+            victim.cmd('pkill iperf')
             for host in net.hosts:
                 host.cmd('pkill softflowd')
             collector.cmd('pkill -f netflow_collector/collector.py')
         except Exception as e:
             logger.warning(f"Cleanup warning: {e}")
+        # Give iperf a moment to flush its final buffer to the log file.
+        time.sleep(1.0)
         net.stop()
         self.generate_report()
 
@@ -172,47 +203,238 @@ class E2EEvaluator:
         x = features_dict_to_array(features)
         self._run_orchestration(x)
 
+    # ── iperf log parsing ────────────────────────────────────────────────────
+    _IPERF_LINE = re.compile(
+        r'\[\s*\d+\]\s+([\d.]+)-\s*([\d.]+)\s*sec\s+'
+        r'[\d.]+\s+\w+\s+([\d.]+)\s+Mbits/sec'
+        r'(?:\s+[\d.]+\s+ms\s+\d+/\s*\d+\s+\(([\d.]+)%\))?'
+    )
+
+    def _parse_iperf_log(self, path: str) -> list:
+        """
+        Parse iperf -i 1 stdout. Returns list of dicts:
+            {'t_offset': sec, 'mbps': float, 'lost_pct': float|None, 'epoch': float}
+        Skips the aggregate line (which spans 0 → total seconds).
+        """
+        out = []
+        if not os.path.exists(path):
+            return out
+        max_window = 1.5  # per-second lines have end-start ≈ 1.0
+        try:
+            with open(path) as f:
+                for line in f:
+                    m = self._IPERF_LINE.search(line)
+                    if not m:
+                        continue
+                    t_start, t_end, mbps, lost = m.groups()
+                    t_s, t_e = float(t_start), float(t_end)
+                    if (t_e - t_s) > max_window:
+                        continue   # skip total/aggregate line
+                    out.append({
+                        't_offset': t_e,
+                        'mbps':     float(mbps),
+                        'lost_pct': float(lost) if lost else None,
+                        'epoch':    self._iperf_t0 + t_e,
+                    })
+        except Exception as e:
+            logger.warning(f"iperf parse failed for {path}: {e}")
+        return out
+
+    def _phase_of(self, epoch: float) -> str:
+        """Classify an epoch into phase name."""
+        if epoch < self.phase_t['attack']:
+            return 'baseline'
+        if epoch < self.phase_t['recovery']:
+            return 'attack'
+        return 'recovery'
+
+    def _mean_by_phase(self, series: list) -> dict:
+        """Mean Mbps per phase from an iperf series."""
+        buckets = {'baseline': [], 'attack': [], 'recovery': []}
+        for p in series:
+            buckets[self._phase_of(p['epoch'])].append(p['mbps'])
+        return {k: (sum(v) / len(v) if v else 0.0) for k, v in buckets.items()}
+
+    # ── Metric computation ──────────────────────────────────────────────────
+    def _compute_metrics(self, legit_series: list, victim_series: list) -> dict:
+        """
+        Lead time, TPR/FPR per window, goodput-per-phase.
+        Window = 1 entry in self.results_ai / self.results_base.
+        Ground truth: window epoch in [attack, recovery) → label=1, else 0.
+        AI positive: tier >= 2 (proactive escalation already counts).
+        Baseline positive: tier >= 3 (reactive Mitigate).
+        """
+        ai = self.results_ai
+        bs = self.results_base
+        wt = self.timestamps
+        n  = len(ai)
+
+        def _first(seq, pred):
+            for i, v in enumerate(seq):
+                if pred(v):
+                    return i
+            return None
+
+        ai_first_t2   = _first(ai, lambda t: t >= 2)
+        ai_first_t3   = _first(ai, lambda t: t >= 3)
+        base_first_t3 = _first(bs, lambda t: t >= 3)
+
+        def _epoch(idx):
+            return wt[idx] if (idx is not None and idx < len(wt)) else None
+
+        e_ai_t2 = _epoch(ai_first_t2)
+        e_ai_t3 = _epoch(ai_first_t3)
+        e_bs_t3 = _epoch(base_first_t3)
+
+        lead_vs_baseline = (e_bs_t3 - e_ai_t2) if (e_ai_t2 and e_bs_t3) else None
+        lead_proactive   = (e_ai_t3 - e_ai_t2) if (e_ai_t2 and e_ai_t3) else None
+
+        # TPR/FPR per window
+        labels = []
+        for t in wt:
+            labels.append(1 if (self.phase_t['attack'] <= t < self.phase_t['recovery']) else 0)
+        ai_pred = [1 if t >= 2 else 0 for t in ai]
+        bs_pred = [1 if t >= 3 else 0 for t in bs]
+
+        def _stats(pred):
+            tp = sum(1 for p, y in zip(pred, labels) if p == 1 and y == 1)
+            fp = sum(1 for p, y in zip(pred, labels) if p == 1 and y == 0)
+            fn = sum(1 for p, y in zip(pred, labels) if p == 0 and y == 1)
+            tn = sum(1 for p, y in zip(pred, labels) if p == 0 and y == 0)
+            tpr = tp / (tp + fn) if (tp + fn) else 0.0
+            fpr = fp / (fp + tn) if (fp + tn) else 0.0
+            prec = tp / (tp + fp) if (tp + fp) else 0.0
+            f1 = (2 * prec * tpr / (prec + tpr)) if (prec + tpr) else 0.0
+            return {'tp': tp, 'fp': fp, 'fn': fn, 'tn': tn,
+                    'tpr': round(tpr, 4), 'fpr': round(fpr, 4),
+                    'precision': round(prec, 4), 'f1': round(f1, 4)}
+
+        return {
+            'n_windows': n,
+            'lead_time_vs_baseline_s': round(lead_vs_baseline, 2) if lead_vs_baseline else None,
+            'lead_time_proactive_internal_s': round(lead_proactive, 2) if lead_proactive else None,
+            'first_window': {
+                'ai_tier2':   ai_first_t2,
+                'ai_tier3':   ai_first_t3,
+                'base_tier3': base_first_t3,
+            },
+            'classification_ai':       _stats(ai_pred),
+            'classification_baseline': _stats(bs_pred),
+            'goodput_legit_mbps_by_phase':  self._mean_by_phase(legit_series),
+            'goodput_victim_mbps_by_phase': self._mean_by_phase(victim_series),
+        }
+
+    # ── Reporting ────────────────────────────────────────────────────────────
     def generate_report(self):
         out_dir = _ROOT / 'evaluation' / 'results'
         out_dir.mkdir(parents=True, exist_ok=True)
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        
-        # 1. Vẽ biểu đồ so sánh Response Tier
-        plt.figure(figsize=(12, 6))
-        x_axis = np.arange(len(self.results_ai)) * self.window_sec
-        
-        plt.step(x_axis, self.results_ai, label='AI-Augmented (Proactive)', color='#1f77b4', linewidth=2, where='post')
-        plt.step(x_axis, self.results_base, label='Threshold-based (Reactive)', color='#d62728', linestyle='--', linewidth=2, where='post')
-        
-        plt.title('DDoS Response Comparison: Real Mininet Traffic', fontsize=14)
-        plt.xlabel('Time (seconds)', fontsize=12)
-        plt.ylabel('Response Tier (T0-T4)', fontsize=12)
-        plt.yticks([0, 1, 2, 3, 4], ['T0:Normal', 'T1:Alert', 'T2:Preempt', 'T3:Mitigate', 'T4:Block'])
-        plt.legend(loc='upper left')
-        plt.grid(True, linestyle=':', alpha=0.6)
-        
-        # Đánh dấu thời điểm tấn công (giả định bắt đầu ở giây thứ 30)
-        plt.axvline(x=30, color='gray', linestyle='-.', alpha=0.5)
-        plt.text(31, 0.5, 'Attack Start', color='gray', rotation=0)
 
+        # Parse iperf logs
+        legit_series  = self._parse_iperf_log(self.log_legit)
+        victim_series = self._parse_iperf_log(self.log_victim)
+        bg_series     = self._parse_iperf_log(self.log_bg)
+        logger.info(f"[iperf] legit={len(legit_series)}  victim={len(victim_series)}  bg={len(bg_series)} samples")
+
+        metrics = self._compute_metrics(legit_series, victim_series)
+
+        # Time axis: prefer real epochs (relative to attack start = 0); fall
+        # back to fixed-window approximation if timestamps missing.
+        if self.timestamps:
+            t_attack = self.phase_t['attack'] or self.timestamps[0]
+            x_axis = np.array([t - t_attack for t in self.timestamps])
+        else:
+            x_axis = np.arange(len(self.results_ai)) * self.window_sec - 30.0
+
+        # Two-panel chart: tier curves + goodput overlay
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 9), sharex=True)
+
+        ax1.step(x_axis, self.results_ai,  label='AI-Augmented (Proactive)',
+                 color='#1f77b4', linewidth=2, where='post')
+        ax1.step(x_axis, self.results_base, label='Threshold-based (Reactive)',
+                 color='#d62728', linestyle='--', linewidth=2, where='post')
+        ax1.set_ylabel('Response Tier', fontsize=12)
+        ax1.set_yticks([0, 1, 2, 3, 4])
+        ax1.set_yticklabels(['T0:Normal', 'T1:Alert', 'T2:Preempt', 'T3:Mitigate', 'T4:Block'])
+        ax1.legend(loc='upper left')
+        ax1.grid(True, linestyle=':', alpha=0.6)
+        ax1.axvline(x=0, color='gray', linestyle='-.', alpha=0.5, label='Attack start')
+        ax1.axvline(x=self.args.duration, color='gray', linestyle=':', alpha=0.5)
+        ax1.set_title('DDoS Response Comparison — Real Mininet Traffic', fontsize=14)
+
+        # Panel 2: goodput
+        if legit_series:
+            t_attack = self.phase_t['attack'] or self._iperf_t0
+            t_rel = [p['epoch'] - t_attack for p in legit_series]
+            ax2.plot(t_rel, [p['mbps'] for p in legit_series],
+                     label='Legit user h2 → victim (5 Mbps offered)',
+                     color='#2ca02c', linewidth=1.8)
+        if victim_series:
+            t_attack = self.phase_t['attack'] or self._iperf_t0
+            t_rel = [p['epoch'] - t_attack for p in victim_series]
+            ax2.plot(t_rel, [p['mbps'] for p in victim_series],
+                     label='Victim received (legit only)',
+                     color='#9467bd', linewidth=1.5, linestyle='--')
+        ax2.set_xlabel('Time relative to attack start (s)', fontsize=12)
+        ax2.set_ylabel('Throughput (Mbps)', fontsize=12)
+        ax2.axvline(x=0, color='gray', linestyle='-.', alpha=0.5)
+        ax2.axvline(x=self.args.duration, color='gray', linestyle=':', alpha=0.5)
+        ax2.legend(loc='lower left')
+        ax2.grid(True, linestyle=':', alpha=0.6)
+
+        plt.tight_layout()
         img_path = out_dir / f'real_e2e_comparison_{ts}.png'
         plt.savefig(img_path, dpi=300)
+        plt.close(fig)
         logger.info(f"[✓] Biểu đồ so sánh đã lưu: {img_path}")
-        
-        # 2. Xuất số liệu JSON để hậu xử lý
+
+        # Extended JSON
         report_data = {
             'timestamp': ts,
-            'config': {'k': self.args.k, 'duration': self.args.duration},
+            'config':    {'k': self.args.k, 'duration': self.args.duration,
+                          'window_sec': self.window_sec},
+            'phases': {k: round(v, 3) for k, v in self.phase_t.items()},
             'series': {
-                'ai_tiers': self.results_ai,
-                'base_tiers': self.results_base,
-                'time_axis': x_axis.tolist()
-            }
+                'ai_tiers':           self.results_ai,
+                'base_tiers':         self.results_base,
+                'window_timestamps':  [round(t, 3) for t in self.timestamps],
+                'time_axis_rel_s':    x_axis.tolist(),
+            },
+            'iperf': {
+                'legit_h2_to_victim': legit_series,
+                'victim_received':    victim_series,
+                'background_h1_h14':  bg_series,
+            },
+            'metrics': metrics,
         }
         json_path = out_dir / f'real_e2e_data_{ts}.json'
         with open(json_path, 'w') as f:
             json.dump(report_data, f, indent=2)
         logger.info(f"[✓] Dữ liệu JSON đã lưu: {json_path}")
+
+        # Console summary
+        m = metrics
+        print("\n" + "─" * 60)
+        print(f"  Real Mininet Testbed Summary — k={self.args.k}, attack={self.args.duration}s")
+        print("─" * 60)
+        print(f"  Windows collected           : {m['n_windows']}")
+        lt = m['lead_time_vs_baseline_s']
+        print(f"  Lead time AI vs Baseline    : "
+              f"{lt:.1f} s" if lt is not None else "  Lead time AI vs Baseline    : n/a")
+        print(f"  AI    TPR/FPR/F1            : "
+              f"{m['classification_ai']['tpr']:.2f} / "
+              f"{m['classification_ai']['fpr']:.2f} / "
+              f"{m['classification_ai']['f1']:.2f}")
+        print(f"  Base  TPR/FPR/F1            : "
+              f"{m['classification_baseline']['tpr']:.2f} / "
+              f"{m['classification_baseline']['fpr']:.2f} / "
+              f"{m['classification_baseline']['f1']:.2f}")
+        gp = m['goodput_victim_mbps_by_phase']
+        print(f"  Victim goodput (Mbps)       : "
+              f"baseline={gp['baseline']:.2f} | "
+              f"attack={gp['attack']:.2f} | "
+              f"recovery={gp['recovery']:.2f}")
+        print("─" * 60)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='PAD-ONAP: Real NetFlow E2E Evaluation')
