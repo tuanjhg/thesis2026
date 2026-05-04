@@ -5,7 +5,7 @@ PAD-ONAP: Real NetFlow E2E Evaluation Pipeline
 So sánh hiệu năng AI (Proactive) vs Threshold (Reactive) trên Mininet.
 Dữ liệu được trích xuất từ packet thật (softflowd) và chạy qua 2 bộ điều phối.
 """
-import os, sys, time, json, threading, logging, argparse, socket
+import os, sys, time, json, threading, logging, argparse
 from pathlib import Path
 from datetime import datetime
 import numpy as np
@@ -17,7 +17,7 @@ sys.path.insert(0, str(_ROOT))
 
 from pipeline.s4_orchestration.orchestrator import Orchestrator
 from evaluation.baseline_threshold import BaselineOrchestrator
-from testbed.netflow_collector.collector import parse_netflow_v5, FlowFeatureExtractor
+from pipeline.s3_ai.live_pipeline import fetch_latest, features_dict_to_array
 
 # Thiết lập log
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
@@ -30,6 +30,9 @@ class E2EEvaluator:
         self.results_base = []
         self.timestamps = []
         self.stop_event = threading.Event()
+        self.window_sec = 5.0
+        self.collector_url = None
+        self._last_vec_ts = None
         
         # 1. Khởi tạo 2 bộ não xử lý (AI và Ngưỡng tĩnh)
         # Tắt shap_enabled để đảm bảo xử lý real-time mượt mà trên Mininet
@@ -63,8 +66,29 @@ class E2EEvaluator:
         
         logger.info(f"*** Khởi tạo Mininet Fat-Tree k={self.args.k}")
         net = build_fat_tree(k=self.args.k)
+
+        edge = net.get('e0_0')
+        collector = net.addHost('collector', ip='10.0.0.250/24')
+        net.addLink(collector, edge)
+
+        root = net.addHost('root', inNamespace=False, ip='10.0.0.254/24')
+        net.addLink(root, edge)
+
         net.start()
+        root_intf = root.intf()
+        if root_intf:
+            root.setIP('10.0.0.254/24', intf=root_intf.name)
         time.sleep(3) # Đợi mạng ổn định
+
+        collector_ip = collector.IP()
+        self.collector_url = f"http://{collector_ip}:7070"
+
+        collector_script = _ROOT / 'testbed' / 'netflow_collector' / 'collector.py'
+        collector.cmd(
+            f'python3 {collector_script} --mode netflow --port 6343 '
+            f'--api-port 7070 --interval {self.window_sec} &'
+        )
+        time.sleep(2)
         
         attacker, victim = attacker_victim(net)
         logger.info(f"*** Attacker: {attacker.name} -> Victim: {victim.name}")
@@ -72,59 +96,51 @@ class E2EEvaluator:
         # Bật softflowd trên tất cả host để xuất packet thật thành NetFlow v5
         logger.info("*** Khởi động softflowd trên các hosts...")
         for host in net.hosts:
-            host.cmd(f'softflowd -i {host.intf().name} -n 127.0.0.1:6343 -v 5 -d &')
-        
-        # Bộ trích xuất đặc trưng từ packet UDP 6343
-        extractor = FlowFeatureExtractor(window_sec=5.0)
-        import socket
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        sock.bind(('0.0.0.0', 6343))
-        sock.settimeout(1.0)
+            if host.name in {'collector', 'root'}:
+                continue
+            host.cmd(
+                f'softflowd -i {host.intf().name} -n {collector_ip}:6343 -v 5 -d &'
+            )
 
         logger.info(">>> Phase 1: Baseline (Normal traffic) - 30 giây")
         t_start = time.time()
         while time.time() - t_start < 30:
-            self._collect_and_step(sock, extractor)
+            self._collect_and_step()
 
         logger.info(f">>> Phase 2: UDP Flood Attack - {self.args.duration} giây")
         # Sử dụng hping3 flood thật sự
         attacker.cmd(f'hping3 --udp --flood -p 80 {victim.IP()} &')
         t_attack = time.time()
         while time.time() - t_attack < self.args.duration:
-            self._collect_and_step(sock, extractor)
+            self._collect_and_step()
 
         logger.info(">>> Phase 3: Recovery (Ngừng tấn công) - 20 giây")
         attacker.cmd('pkill hping3')
         t_stop = time.time()
         while time.time() - t_stop < 20:
-            self._collect_and_step(sock, extractor)
+            self._collect_and_step()
 
         logger.info("*** Kết thúc kiểm thử. Dừng Mininet.")
         net.stop()
-        sock.close()
         self.generate_report()
 
-    def _collect_and_step(self, sock, extractor):
-        """Hứng NetFlow packets và đẩy vào AI mỗi khi đủ cửa sổ thời gian"""
-        try:
-            data, _ = sock.recvfrom(65535)
-            flows = parse_netflow_v5(data)
-            if flows:
-                extractor.add_flows(flows)
-        except socket.timeout:
-            pass
-        
-        # Kiểm tra nếu đã đến lúc tính toán feature window (mỗi 5s)
-        # Chúng ta dùng một biến đếm window đơn giản dựa trên thời gian
-        now = time.time()
-        if not hasattr(self, '_last_compute'): self._last_compute = now
-        
-        if now - self._last_compute >= 5.0:
-            vec = extractor.compute()
-            if vec:
-                x = np.array([vec['features'][k] for k in vec['feature_names']], dtype=np.float32)
-                self._run_orchestration(x)
-            self._last_compute = now
+    def _collect_and_step(self):
+        """Fetch latest feature vector from collector HTTP API and run AI step."""
+        if not self.collector_url:
+            return
+        vec = fetch_latest(self.collector_url, timeout=1.0)
+        if not vec:
+            return
+        ts = vec.get('timestamp')
+        if ts is None or ts == self._last_vec_ts:
+            return
+        self._last_vec_ts = ts
+
+        features = vec.get('features', {})
+        if not features:
+            return
+        x = features_dict_to_array(features)
+        self._run_orchestration(x)
 
     def generate_report(self):
         out_dir = _ROOT / 'evaluation' / 'results'
@@ -133,7 +149,7 @@ class E2EEvaluator:
         
         # 1. Vẽ biểu đồ so sánh Response Tier
         plt.figure(figsize=(12, 6))
-        x_axis = np.arange(len(self.results_ai)) * 5 # Mỗi window 5s
+        x_axis = np.arange(len(self.results_ai)) * self.window_sec
         
         plt.step(x_axis, self.results_ai, label='AI-Augmented (Proactive)', color='#1f77b4', linewidth=2, where='post')
         plt.step(x_axis, self.results_base, label='Threshold-based (Reactive)', color='#d62728', linestyle='--', linewidth=2, where='post')
