@@ -79,6 +79,46 @@ pip install requests docker    # only new deps; others already installed
 python -c "import requests, docker; print('OK')"
 ```
 
+### 1.6 Trained AI artifacts (REQUIRED)
+
+The S2 / S8 runners drive **all** ONAP triggers from the live trained model
+(`InferenceEngine` in `pipeline/s3_ai/`). They no longer use simulated
+payloads. The following files must exist before any run:
+
+```
+pad_onap_v3/models/
+├── xgboost_v3.json         # 7-class XGBoost classifier
+├── transformer_v3.pt       # 4-horizon Transformer+LSTM forecaster
+├── scaler.pkl              # StandardScaler fit on training data
+├── xgb_label_map.json
+├── xgb_tuned_configs.json
+├── tf_best_config.json
+└── transformer_metrics.json
+```
+
+Verify:
+```bash
+ls pad_onap_v3/models/{xgboost_v3.json,transformer_v3.pt,scaler.pkl}
+```
+
+### 1.7 NetFlow feature collector (REQUIRED)
+
+The runner polls features from a collector HTTP endpoint (default
+`http://localhost:7070`). Start it before launching S2 / S8:
+
+```bash
+# Synthetic feed driven by gNMI simulator (lab default)
+python testbed/netflow_collector/collector.py \
+  --mode synthetic --gnmi http://localhost:8888 --api-port 7070 &
+
+# Real NetFlow v5 from OVS / softflowd
+python testbed/netflow_collector/collector.py \
+  --mode netflow --port 6343 --api-port 7070 &
+
+# Verify
+curl -s http://localhost:7070/flows/latest | jq .timestamp
+```
+
 ---
 
 ## 2. Environment Variables
@@ -107,6 +147,12 @@ export VNF_DOCKER_HOST=unix:///var/run/docker.sock
 
 # --- Optional gNMI simulator ---
 export GNMI_URL=http://localhost:8888
+
+# --- Trained AI (overridable via CLI flags too) ---
+export PAD_COLLECTOR_URL=http://localhost:7070
+export PAD_MODEL_DIR=pad_onap_v3/models
+export PAD_DATA_DIR=pad_onap_v3/processed
+export PAD_DEVICE=cpu        # or cuda
 ```
 
 Verify with:
@@ -153,6 +199,10 @@ If any check fails → do NOT proceed; fix connectivity first (see §7 Troublesh
 
 ### 4.2 Run Command
 
+The runner loads `pad_onap_v3/models/*` once at startup and polls features
+from `--collector-url` every 5 s. Triggers fire only when the **trained
+model** raises `tier ≥ 3` (no simulated payload).
+
 ```bash
 # gNMI mode (recommended for lab without real attack traffic)
 python onap/scripts/run_s2_real.py \
@@ -160,7 +210,10 @@ python onap/scripts/run_s2_real.py \
   --gnmi-url http://localhost:8888 \
   --bridge br-pad \
   --src-ip 10.0.0.1 \
-  --vnf-port 9001
+  --vnf-port 9001 \
+  --collector-url http://localhost:7070 \
+  --model-dir pad_onap_v3/models \
+  --device cpu
 
 # Mininet mode (real hping3 attack)
 python onap/scripts/run_s2_real.py \
@@ -250,11 +303,18 @@ S8 is the **key novelty demonstration**: the forecaster predicts an attack 30 s 
 
 ### 5.2 Run Command
 
+Same trained AI requirement as S2. Two triggers come from the live model:
+proactive (Transformer P30 ≥ 0.70 OR XGBoost conf > 0.80) → T2, then
+reactive (conf > 0.90 + P30 > 0.90) → T3.
+
 ```bash
 python onap/scripts/run_s8_real.py \
   --gnmi-url http://localhost:8888 \
   --bridge br-pad \
-  --vnf-port 9001
+  --vnf-port 9001 \
+  --collector-url http://localhost:7070 \
+  --model-dir pad_onap_v3/models \
+  --device cpu
 
 # With custom hold duration between T2 and T3
 python onap/scripts/run_s8_real.py \
@@ -313,6 +373,102 @@ python onap/scripts/run_s8_real.py \
 | `t2_end_to_end_ms` | < 700 ms | ~612 ms |
 | `t3_end_to_end_ms` | < 7 000 ms | ~6 400 ms |
 | `lead_time_s` | ≥ 25 s | 25–35 s |
+
+---
+
+## 5b. ONAP rule-based baseline (no AI)
+
+The **honest baseline** for the thesis is what stock ONAP DCAE/Holmes
+would do on the same traffic without any ML — pure threshold rules
+on raw counters. Implemented in `onap/scripts/run_baseline_real.py`:
+
+- Polls the **same** `/flows/latest` collector endpoint that
+  `LiveInferenceRunner` uses (identical 17-feature stream).
+- Per window, applies `evaluation.baseline_threshold.threshold_decide()`
+  (rules: `pkt_rate > 10k → T3`, `udp_frac > 0.85 → T3`,
+  `syn_ratio > 0.60 → T3`, etc.). NO ML, NO forecast.
+- Requires `--sustain-windows` consecutive trips before firing
+  (default 3, ≈ 15 s of evidence) — emulates DCAE-TCAGen2 / Holmes
+  CEP correlation behaviour.
+- When the rule trips T3, fires the **same** real `CLAMPReal /
+  ONAPSOReal / OVSSFCReal` chain → scrubber VNF.
+
+```bash
+python onap/scripts/run_baseline_real.py \
+  --attack-mode gnmi --gnmi-url http://localhost:8888 \
+  --bridge br-pad --src-ip 10.0.0.1 --vnf-port 9001 \
+  --collector-url http://localhost:7070 \
+  --sustain-windows 3 \
+  --out evaluation/results/s2_baseline_real_onap.json
+```
+
+> The `--no-proactive` flag on `run_s8_real.py` is **not** a baseline —
+> it only disables the T2 firing inside the AI run. Use this script
+> for the real "ONAP without AI" baseline.
+
+---
+
+## 5c. Three-way comparison: AI reactive vs AI proactive vs ONAP rule-based
+
+### One-shot harness
+
+```bash
+export PAD_ONAP_STUB=false
+export SO_URL=http://localhost:8080
+export DMAAP_URL=http://localhost:3904
+export PAP_URL=http://localhost:6969
+
+bash onap/scripts/run_compare_all.sh \
+  --gnmi-url      http://localhost:8888 \
+  --collector-url http://localhost:7070 \
+  --bridge        br-pad \
+  --src-ip        10.0.0.1 \
+  --vnf-port      9001 \
+  --vnf-port-t2   3 \
+  --vnf-port-t3   4 \
+  --sustain       3
+```
+
+Produces:
+
+| File | Run |
+|------|-----|
+| `evaluation/results/s2_real_onap.json`          | AI reactive (XGBoost)                |
+| `evaluation/results/s8_real_onap.json`          | AI proactive + reactive (Transformer)|
+| `evaluation/results/s2_baseline_real_onap.json` | ONAP rule-based (no AI)              |
+| `evaluation/results/ai_vs_baseline.md`          | Side-by-side latency report          |
+
+### Metrics measured (defined identically across all three runs)
+
+| Metric                  | Formula                                   | Meaning                                                                                  |
+|-------------------------|-------------------------------------------|------------------------------------------------------------------------------------------|
+| `detection_lat_ms`      | `t_trigger − t_attack_start`              | Detector cost only (AI inference vs threshold sustain). Quantifies what the model buys you. |
+| `detection_to_policy_ms`| `t_policy_push − t_trigger`               | CLAMP push to PAP (network round-trip; same code in all runs).                           |
+| `policy_to_so_ms`       | `t_so_request − t_policy_push`            | Time to POST the SO instantiate (same code in all runs).                                 |
+| `so_to_vnf_ms`          | `t_vnf_active − t_so_request`             | VNF boot — depends on **VNF profile**: ratelimiter ≈ 500 ms, scrubber ≈ 6 000 ms.        |
+| `vnf_to_sfc_ms`         | `t_sfc_rule − t_vnf_active`               | OVS rule install (same code in all runs).                                                |
+| `pipeline_e2e_ms`       | `t_sfc_rule − t_trigger`                  | ONAP downstream cost: detector boundary → packets diverted.                              |
+| `time_to_mitigation_ms` | `t_sfc_rule − t_attack_start`             | **User-visible quantity**: how long until the victim stops receiving attack packets. ★    |
+
+Cross-run quantities (computed by `compare_ai_vs_baseline.py`):
+
+| Quantity                  | Definition                                                                  |
+|---------------------------|-----------------------------------------------------------------------------|
+| `proactive_advantage_ms`  | `baseline.time_to_mitigation_ms − ai_proactive.t2_time_to_mitigation_ms`    |
+| `reactive_advantage_ms`   | `baseline.time_to_mitigation_ms − ai_reactive.time_to_mitigation_ms`        |
+| `forecast_lead_time_s`    | `s8.t3_t_trigger − s8.t2_t_trigger` (intra-S8; no baseline equivalent)      |
+
+### Expected ranges (lab numbers)
+
+| Detector              | `detection_lat_ms` | `pipeline_e2e_ms` | `time_to_mitigation_ms` |
+|-----------------------|--------------------|-------------------|-------------------------|
+| AI proactive (T2)     | 0–5 s (forecast)   | ~600              | ~5 000–10 000 (often **before** attack peak) |
+| AI reactive (S2)      | 5–10 s (1 window)  | ~6 400            | ~11 000–16 000          |
+| ONAP rule-based       | 15–60 s (sustain)  | ~6 400            | ~21 000–66 000          |
+
+The thesis claim is `proactive_advantage_ms ≥ 15 000 ms` and a
+non-negative `forecast_lead_time_s` — both directly readable from
+`ai_vs_baseline.md`.
 
 ---
 

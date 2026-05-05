@@ -73,13 +73,21 @@ HEADERS = {
 class E2ERecord:
     scenario:     str
     vnf_profile:  str
-    t_trigger:    float = 0.0   # AI signal generated
+    detector:     str   = "ai"   # "ai" | "rule_based"
+    t_attack_start: float = 0.0  # wall-clock when flood injection begins
+    t_trigger:    float = 0.0   # detector fires (AI tier ≥ 3 or rule trip)
     t_policy_push:float = 0.0   # CLAMP/Policy PAP accepted
     t_so_request: float = 0.0   # SO POST sent
     t_vnf_active: float = 0.0   # SO instance ACTIVE
     t_sfc_rule:   float = 0.0   # OVS rule installed
+    detector_label:    str   = ""    # e.g. "UDP_Flood conf=0.92" or "pkt_rate>10k"
+    detector_evidence: dict  = field(default_factory=dict)
     error:        Optional[str] = None
 
+    @property
+    def detection_lat_ms(self):
+        if self.t_attack_start == 0.0: return 0.0
+        return (self.t_trigger - self.t_attack_start) * 1000
     @property
     def detection_to_policy_ms(self): return (self.t_policy_push - self.t_trigger) * 1000
     @property
@@ -89,15 +97,24 @@ class E2ERecord:
     @property
     def vnf_to_sfc_ms(self):          return (self.t_sfc_rule    - self.t_vnf_active)  * 1000
     @property
-    def end_to_end_ms(self):          return (self.t_sfc_rule    - self.t_trigger)      * 1000
+    def pipeline_e2e_ms(self):        return (self.t_sfc_rule    - self.t_trigger)      * 1000
+    @property
+    def time_to_mitigation_ms(self):
+        if self.t_attack_start == 0.0: return 0.0
+        return (self.t_sfc_rule - self.t_attack_start) * 1000
+    # Backwards compat
+    @property
+    def end_to_end_ms(self):          return self.pipeline_e2e_ms
 
     def print_table(self):
         rows = [
-            ("AI trigger → Policy push",  self.detection_to_policy_ms),
+            ("Attack start → Detect",     self.detection_lat_ms),
+            ("Detect → Policy push",      self.detection_to_policy_ms),
             ("Policy push → SO request",  self.policy_to_so_ms),
             ("SO request → VNF ACTIVE",   self.so_to_vnf_ms),
             ("VNF ACTIVE → SFC rule",     self.vnf_to_sfc_ms),
-            ("END-TO-END",                self.end_to_end_ms),
+            ("Pipeline (Detect → SFC)",   self.pipeline_e2e_ms),
+            ("Time-to-mitigation total",  self.time_to_mitigation_ms),
         ]
         w = 36
         print(f"\n{'─'*55}")

@@ -46,6 +46,7 @@ from onap.scripts.onap_e2e_lib import (
     ONAPSOReal, CLAMPReal, OVSSFCReal,
     E2ERecord, wait_vnf_active, publish_to_dmaap,
 )
+from onap.scripts.ai_runtime import LiveInferenceRunner, TierEvent
 
 logging.basicConfig(
     level  = logging.INFO,
@@ -75,6 +76,10 @@ T3_CONF = 0.92     # reactive:  detection confidence cao
 class S8Result:
     """Kết quả đầy đủ cho S8 — cả 2 tier transitions."""
     scenario:            str = SCENARIO
+    detector:            str = "ai"
+    # Attack onsets (wall-clock, set when traffic injection starts)
+    t2_t_attack_start:   float = 0.0
+    t3_t_attack_start:   float = 0.0
     # Phase 2 — T2 proactive
     t2_t_trigger:        float = 0.0
     t2_t_policy_ms:      float = 0.0
@@ -93,6 +98,10 @@ class S8Result:
     t3_instance_id:      str   = ""
     # Novelty metric
     lead_time_s:         float = 0.0   # T3_trigger_time - T2_trigger_time
+    # Comparison mode: when proactive is disabled (reactive-only baseline),
+    # T2 fields stay 0 and only T3 reactive fires. Used as the baseline run
+    # against which a proactive run is compared.
+    proactive_disabled:  bool  = False
     error:               str   = ""
 
     def print_table(self):
@@ -134,7 +143,7 @@ class S8Result:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# AI payload generators
+# AI payload generators (legacy fallback; real runs use LiveInferenceRunner)
 # ─────────────────────────────────────────────────────────────────────────────
 def _ai_payload_t2_proactive(window_id: int) -> dict:
     """Moderate SYN → Transformer P(t+30s)=0.71 → proactive T2."""
@@ -264,21 +273,21 @@ def _kill_flood():
 # ─────────────────────────────────────────────────────────────────────────────
 def _run_t2_proactive(
     so: ONAPSOReal, clamp: CLAMPReal, sfc: OVSSFCReal,
-    bridge: str, vnf_port: int, window_id: int,
+    bridge: str, vnf_port: int, ev: TierEvent,
     result: S8Result,
 ):
-    """Phase 2: moderate SYN → proactive T2 → ratelimiter."""
+    """Phase 2: moderate SYN → proactive T2 → ratelimiter (real AI driven)."""
     logger.info("── Phase 2: SYN moderate → Proactive T2 ──────────────────")
 
-    result.t2_t_trigger = time.time()
-    payload = _ai_payload_t2_proactive(window_id)
-    publish_to_dmaap(payload)
-    logger.info(f"  AI: SYN_Flood conf={T2_CONF}  P30s=0.71 → PROACTIVE T2")
+    result.t2_t_trigger = ev.t
+    publish_to_dmaap(ev.payload)
+    logger.info(f"  AI: {ev.attack_type} conf={ev.confidence:.3f}  "
+                f"P30s={ev.p_attack_30s:.3f} → PROACTIVE T{ev.tier}")
 
     # Policy push
     ok = clamp.push_policy(
-        tier=2, attack_type="SYN_Flood",
-        device_id=DEVICE_ID, confidence=T2_CONF,
+        tier=2, attack_type=ev.attack_type,
+        device_id=DEVICE_ID, confidence=ev.confidence,
     )
     t_policy = time.time()
     result.t2_t_policy_ms = (t_policy - result.t2_t_trigger) * 1000
@@ -314,29 +323,26 @@ def _run_t2_proactive(
 
 def _run_t3_reactive(
     so: ONAPSOReal, clamp: CLAMPReal, sfc: OVSSFCReal,
-    bridge: str, vnf_port: int, window_id: int,
+    bridge: str, vnf_port: int, ev: TierEvent,
     result: S8Result,
 ):
-    """Phase 3: strong UDP → reactive T3 → scrubber."""
+    """Phase 3: strong UDP → reactive T3 → scrubber (real AI driven)."""
     logger.info("── Phase 3: UDP strong → Reactive T3 ────────────────────")
 
-    result.t3_t_trigger = time.time()
-    payload = _ai_payload_t3_reactive(window_id)
-    publish_to_dmaap(payload)
-    logger.info(f"  AI: UDP_Flood conf={T3_CONF} → REACTIVE T3")
+    result.t3_t_trigger = ev.t
+    publish_to_dmaap(ev.payload)
+    logger.info(f"  AI: {ev.attack_type} conf={ev.confidence:.3f} → REACTIVE T{ev.tier}")
 
-    # Revoke T2 policy first
-    clamp.revoke_policy(2, DEVICE_ID)
-    sfc.remove(f"{DEVICE_ID}-t2")
-
-    # Terminate T2 VNF
+    # Revoke T2 policy first (only if T2 actually fired)
     if result.t2_instance_id:
+        clamp.revoke_policy(2, DEVICE_ID)
+        sfc.remove(f"{DEVICE_ID}-t2")
         so.terminate(result.t2_instance_id)
 
     # Policy push T3
     ok = clamp.push_policy(
-        tier=3, attack_type="UDP_Flood",
-        device_id=DEVICE_ID, confidence=T3_CONF,
+        tier=3, attack_type=ev.attack_type,
+        device_id=DEVICE_ID, confidence=ev.confidence,
     )
     t_policy = time.time()
     result.t3_t_policy_ms = (t_policy - result.t3_t_trigger) * 1000
@@ -383,12 +389,20 @@ def run_s8(
     vnf_port_t3:  int  = 4,
     dry_run:      bool = False,
     cleanup:      bool = True,
+    no_proactive: bool = False,
+    collector_url: str = "http://localhost:7070",
+    model_dir:     str = "pad_onap_v3/models",
+    data_dir:      str = "pad_onap_v3/processed",
+    device:        str = "cpu",
+    detect_timeout_s: float = 60.0,
 ) -> S8Result:
 
     result = S8Result()
+    result.proactive_disabled = no_proactive
     so    = ONAPSOReal()
     clamp = CLAMPReal()
     sfc   = OVSSFCReal()
+    runner: "LiveInferenceRunner | None" = None
 
     sep = "═" * 64
     print(f"\n{sep}")
@@ -414,24 +428,45 @@ def run_s8(
         return result
 
     try:
-        # Phase 1 — Normal
-        logger.info(f"Phase 1: Normal traffic ({NORMAL_DUR_S}s)...")
+        # Phase 0 — start trained AI runtime
+        logger.info("Phase 0: Loading trained AI engine + collector poller...")
+        runner = LiveInferenceRunner(
+            collector_url=collector_url, model_dir=model_dir,
+            data_dir=data_dir, device=device, interval_s=5.0,
+        )
+        runner.start()
+
+        # Phase 1 — Normal (also fills Transformer rolling buffer)
+        logger.info(f"Phase 1: Normal traffic ({NORMAL_DUR_S}s, AI buffer fill)...")
         time.sleep(NORMAL_DUR_S)
 
-        # Phase 2 — SYN moderate → T2 proactive
+        # Phase 2 — SYN moderate → T2 proactive (skipped when --no-proactive)
+        t_syn_start = time.time()
+        result.t2_t_attack_start = t_syn_start
         if attack_mode == "gnmi":
             _gnmi_attack(gnmi_url, "syn_flood")
         else:
             _mininet_syn(victim_ip)
-        time.sleep(5)   # 1 window for feature extraction
 
-        _run_t2_proactive(so, clamp, sfc, bridge, vnf_port_t2,
-                          window_id=31, result=result)
+        if no_proactive:
+            logger.info("── Phase 2: SKIPPED (reactive-only mode, ignoring T2) ──")
+            t_proactive_fired = t_syn_start   # baseline reference
+        else:
+            logger.info(f"── Phase 2: waiting trained AI for proactive trigger "
+                        f"(timeout {detect_timeout_s}s)...")
+            ev_t2 = runner.wait_for_proactive(timeout_s=detect_timeout_s,
+                                              after=t_syn_start)
+            if ev_t2 is None:
+                ev_t2 = runner.wait_for_tier(min_tier=2, timeout_s=10.0,
+                                             after=t_syn_start)
+            if ev_t2 is None:
+                raise RuntimeError("AI did not raise tier ≥ 2 / proactive within timeout")
+            _run_t2_proactive(so, clamp, sfc, bridge, vnf_port_t2,
+                              ev=ev_t2, result=result)
+            t_proactive_fired = result.t2_t_trigger
 
-        # Record lead-time start
-        t_proactive_fired = result.t2_t_trigger
         logger.info(f"  Holding SYN phase ({SYN_MOD_DUR_S}s)...")
-        time.sleep(max(0, SYN_MOD_DUR_S - 5))
+        time.sleep(max(0, SYN_MOD_DUR_S - (time.time() - t_syn_start)))
 
         # Phase 3 — UDP strong → T3 reactive
         if attack_mode == "gnmi":
@@ -442,10 +477,17 @@ def run_s8(
             _kill_flood()
             time.sleep(1)
             _mininet_udp(victim_ip)
-        time.sleep(5)   # 1 window
+        t_udp_start = time.time()
+        result.t3_t_attack_start = t_udp_start
 
+        logger.info(f"── Phase 3: waiting trained AI for tier 3 "
+                    f"(timeout {detect_timeout_s}s)...")
+        ev_t3 = runner.wait_for_tier(min_tier=3, timeout_s=detect_timeout_s,
+                                     after=t_udp_start)
+        if ev_t3 is None:
+            raise RuntimeError("AI did not reach tier 3 within timeout")
         _run_t3_reactive(so, clamp, sfc, bridge, vnf_port_t3,
-                         window_id=56, result=result)
+                         ev=ev_t3, result=result)
 
         # Compute lead-time
         result.lead_time_s = result.t3_t_trigger - t_proactive_fired
@@ -477,6 +519,9 @@ def run_s8(
             sfc.remove(f"{DEVICE_ID}-t2")
             sfc.remove(f"{DEVICE_ID}-t3")
 
+        if runner is not None:
+            runner.stop()
+
     return result
 
 
@@ -495,6 +540,17 @@ if __name__ == "__main__":
     parser.add_argument("--vnf-port-t3",  type=int, default=4)
     parser.add_argument("--dry-run",      action="store_true")
     parser.add_argument("--no-cleanup",   action="store_true")
+    parser.add_argument("--no-proactive", action="store_true",
+                        help="Diagnostic flag: skip T2 (only T3 fires). NOT a true "
+                             "baseline — for the real ONAP rule-based baseline use "
+                             "onap/scripts/run_baseline_real.py instead.")
+    parser.add_argument("--out",          default=None,
+                        help="Override output JSON path (default: evaluation/results/s8_real_onap.json)")
+    parser.add_argument("--collector-url", default="http://localhost:7070")
+    parser.add_argument("--model-dir",     default="pad_onap_v3/models")
+    parser.add_argument("--data-dir",      default="pad_onap_v3/processed")
+    parser.add_argument("--device",        default="cpu", choices=["cpu", "cuda"])
+    parser.add_argument("--detect-timeout-s", type=float, default=60.0)
     args = parser.parse_args()
 
     if os.environ.get("PAD_ONAP_STUB", "true").lower() != "false" and not args.dry_run:
@@ -513,11 +569,16 @@ if __name__ == "__main__":
         vnf_port_t3 = args.vnf_port_t3,
         dry_run     = args.dry_run,
         cleanup     = not args.no_cleanup,
+        no_proactive= args.no_proactive,
+        collector_url    = args.collector_url,
+        model_dir        = args.model_dir,
+        data_dir         = args.data_dir,
+        device           = args.device,
+        detect_timeout_s = args.detect_timeout_s,
     )
     result.print_table()
 
-    # Save result JSON
-    out = Path(_ROOT) / "evaluation" / "results" / "s8_real_onap.json"
+    default_name = "s8_reactive_only_baseline.json" if args.no_proactive else "s8_real_onap.json"
     out.parent.mkdir(parents=True, exist_ok=True)
     with open(out, "w") as f:
         json.dump(asdict(result), f, indent=2)

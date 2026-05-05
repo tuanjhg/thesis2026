@@ -45,6 +45,7 @@ from onap.scripts.onap_e2e_lib import (
     ONAPSOReal, CLAMPReal, OVSSFCReal,
     E2ERecord, wait_vnf_active, publish_to_dmaap,
 )
+from onap.scripts.ai_runtime import LiveInferenceRunner, TierEvent
 
 logging.basicConfig(
     level  = logging.INFO,
@@ -116,61 +117,31 @@ def _stop_mininet_flood():
     logger.info("[Mininet] hping3 stopped")
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# AI signal simulation (thay thế khi InferenceEngine detect thật)
-# ─────────────────────────────────────────────────────────────────────────────
-def _simulate_ai_detect() -> dict:
-    """
-    Trong kịch bản thật: InferenceEngine.infer() sinh AIOutputPayload.
-    Ở đây simulate payload sau khi AI detect UDP_Flood với conf 0.92.
-    Nếu pipeline đang chạy, payload đến từ pipeline thật qua DMaaP.
-    """
-    import uuid, datetime
-    return {
-        "event_id":      uuid.uuid4().hex[:12],
-        "timestamp":     datetime.datetime.utcnow().isoformat() + "Z",
-        "window_id":     31,       # window đầu tiên của attack phase
-        "schema_version": "2.0",
-        "detection": {
-            "attack_class": 1,
-            "attack_type":  ATTACK_TYPE,
-            "confidence":   CONFIDENCE,
-            "class_probs":  {"Normal": 0.04, "UDP_Flood": 0.92, "SYN_Flood": 0.02,
-                             "DNS_Amp": 0.01, "NTP_Amp": 0.01},
-            "top_features": {"pkt_rate": 0.38, "udp_ratio": 0.31,
-                             "src_ip_entropy": -0.22, "byte_rate": 0.15},
-        },
-        "forecast": {
-            "p_attack_30s":  0.94,
-            "p_attack_60s":  0.91,
-            "p_attack_90s":  0.88,
-            "p_attack_120s": 0.82,
-            "proactive_trigger": False,   # S2 là reactive, không proactive
-            "recommended_action": "ACTIVATE_TIER3_MITIGATION",
-        },
-        "proactive_trigger": {"triggered": False, "tier": 0},
-        "suggested_tier": TIER,
-        "device_id":     DEVICE_ID,
-    }
+DETECT_TIMEOUT_S = 60   # giới hạn chờ AI tier ≥ 3 sau khi flood bắt đầu
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Main scenario
 # ─────────────────────────────────────────────────────────────────────────────
 def run_s2(
-    attack_mode:  str   = "gnmi",
-    gnmi_url:     str   = "http://localhost:8080",
-    bridge:       str   = "r1",
-    src_ip:       str   = "10.1.0.1",
-    vnf_port:     int   = 4,
-    dry_run:      bool  = False,
-    cleanup:      bool  = True,
+    attack_mode:   str   = "gnmi",
+    gnmi_url:      str   = "http://localhost:8080",
+    bridge:        str   = "r1",
+    src_ip:        str   = "10.1.0.1",
+    vnf_port:      int   = 4,
+    dry_run:       bool  = False,
+    cleanup:       bool  = True,
+    collector_url: str   = "http://localhost:7070",
+    model_dir:     str   = "pad_onap_v3/models",
+    data_dir:      str   = "pad_onap_v3/processed",
+    device:        str   = "cpu",
 ) -> E2ERecord:
 
     rec = E2ERecord(scenario=SCENARIO, vnf_profile=VNF_PROFILE)
     so     = ONAPSOReal()
     clamp  = CLAMPReal()
     sfc    = OVSSFCReal()
+    runner: "LiveInferenceRunner | None" = None
 
     sep = "═" * 62
     print(f"\n{sep}")
@@ -204,41 +175,73 @@ def run_s2(
             rec.t_vnf_active = rec.t_sfc_rule = time.time()
         return rec
 
-    # ── 2. Normal traffic phase ───────────────────────────────────────────────
-    logger.info(f"Phase 2: Normal traffic baseline ({NORMAL_DUR_S}s)...")
+    # ── 2. Start trained AI runtime (XGBoost + Transformer) ──────────────────
+    logger.info("Phase 2a: Loading trained AI engine + starting collector poller...")
+    runner = LiveInferenceRunner(
+        collector_url=collector_url, model_dir=model_dir,
+        data_dir=data_dir, device=device, interval_s=5.0,
+    )
+    runner.start()
+
+    # Buffer fill — Transformer needs 12 windows of context before stable forecast
+    logger.info(f"Phase 2b: Normal baseline {NORMAL_DUR_S}s (filling AI rolling buffer)...")
     time.sleep(NORMAL_DUR_S)
 
     # ── 3. Inject attack ──────────────────────────────────────────────────────
     logger.info(f"Phase 3: Injecting UDP flood ({ATTACK_DUR_S}s)...")
+    t_attack_start = time.time()
+    rec.t_attack_start = t_attack_start
+    rec.detector = "ai"
     if attack_mode == "gnmi":
         _start_gnmi_flood(gnmi_url)
     else:
         _start_mininet_flood(bridge, src_ip)
 
-    # ── 4. AI detection (simulated or from live pipeline) ────────────────────
-    logger.info("Phase 4: Waiting for AI detection (~5s window)...")
-    time.sleep(5)   # 1 cửa sổ 5s để feature extractor tính
-    rec.t_trigger = time.time()
-    ai_payload    = _simulate_ai_detect()
-    logger.info(f"  AI detect: {ATTACK_TYPE}  conf={CONFIDENCE}  → T{TIER}")
+    # ── 4. AI detection — block on real model output ─────────────────────────
+    logger.info(f"Phase 4: Waiting trained AI to flag tier ≥ {TIER} "
+                f"(timeout {DETECT_TIMEOUT_S}s)...")
+    ev: TierEvent | None = runner.wait_for_tier(
+        min_tier=TIER, timeout_s=DETECT_TIMEOUT_S, after=t_attack_start,
+    )
+    if ev is None:
+        logger.error(f"AI never reached tier ≥ {TIER} within {DETECT_TIMEOUT_S}s "
+                     f"— check collector feed / model")
+        rec.error = "AI detection timeout"
+        runner.stop()
+        _cleanup(attack_mode, gnmi_url, so, clamp, sfc, bridge, None)
+        if runner is not None: runner.stop()
+        return rec
 
-    # Publish to DMaaP (CLAMP polls this topic)
-    logger.info("  Publishing AIOutputPayload → DMaaP...")
+    rec.t_trigger      = ev.t
+    rec.detector_label = f"{ev.attack_type} conf={ev.confidence:.3f} P30={ev.p_attack_30s:.3f}"
+    rec.detector_evidence = {
+        "tier": ev.tier, "confidence": ev.confidence,
+        "p_attack_30s": ev.p_attack_30s, "attack_type": ev.attack_type,
+        "window_id": ev.window_id,
+    }
+    ai_payload         = ev.payload
+    logger.info(f"  AI detect: {ev.attack_type}  conf={ev.confidence:.3f}  "
+                f"P30={ev.p_attack_30s:.3f}  → T{ev.tier} "
+                f"(latency {(ev.t - t_attack_start)*1000:.0f}ms from attack start)")
+
+    # Publish real payload to DMaaP
+    logger.info("  Publishing real AIOutputPayload → DMaaP...")
     publish_to_dmaap(ai_payload)
 
     # ── 5. Policy push ────────────────────────────────────────────────────────
-    logger.info(f"Phase 5: Pushing T{TIER} operational policy to Policy PAP...")
+    logger.info(f"Phase 5: Pushing T{ev.tier} operational policy to Policy PAP...")
     ok = clamp.push_policy(
-        tier=TIER, attack_type=ATTACK_TYPE,
-        device_id=DEVICE_ID, confidence=CONFIDENCE,
+        tier=ev.tier, attack_type=ev.attack_type,
+        device_id=DEVICE_ID, confidence=ev.confidence,
     )
     rec.t_policy_push = time.time()
     if not ok:
         logger.error("Policy push failed — aborting")
         rec.error = "Policy PAP push failed"
         _cleanup(attack_mode, gnmi_url, so, clamp, sfc, bridge, None)
+        if runner is not None: runner.stop()
         return rec
-    logger.info(f"  Policy T{TIER} deployed in "
+    logger.info(f"  Policy T{ev.tier} deployed in "
                 f"{(rec.t_policy_push - rec.t_trigger)*1000:.0f}ms")
 
     # ── 6. SO instantiate VNF ────────────────────────────────────────────────
@@ -249,6 +252,7 @@ def run_s2(
         logger.error("SO instantiate returned None — aborting")
         rec.error = "SO instantiate failed"
         _cleanup(attack_mode, gnmi_url, so, clamp, sfc, bridge, None)
+        if runner is not None: runner.stop()
         return rec
     logger.info(f"  instance_id = {instance_id}")
 
@@ -261,13 +265,14 @@ def run_s2(
         logger.error(f"  VNF failed: {e}")
         rec.error = str(e)
         _cleanup(attack_mode, gnmi_url, so, clamp, sfc, bridge, instance_id)
+        if runner is not None: runner.stop()
         return rec
 
     # ── 8. SFC steering rule ──────────────────────────────────────────────────
     logger.info(f"Phase 8: Installing OVS SFC rule ({bridge} → port {vnf_port})...")
     ok = sfc.install(
         bridge=bridge, src_ip=f"{src_ip}/32",
-        vnf_port=vnf_port, tier=TIER, device_id=DEVICE_ID,
+        vnf_port=vnf_port, tier=ev.tier, device_id=DEVICE_ID,
     )
     rec.t_sfc_rule = time.time()
     if not ok:
@@ -300,6 +305,9 @@ def run_s2(
         logger.info("Cleanup: terminating VNF + revoking policy + removing SFC...")
         _cleanup(attack_mode, gnmi_url, so, clamp, sfc, bridge, instance_id)
 
+    if runner is not None:
+        runner.stop()
+
     return rec
 
 
@@ -328,6 +336,14 @@ if __name__ == "__main__":
                         help="Chỉ preflight, không gọi ONAP thật")
     parser.add_argument("--no-cleanup",  action="store_true",
                         help="Giữ VNF sau khi chạy xong (debug)")
+    parser.add_argument("--collector-url", default="http://localhost:7070",
+                        help="NetFlow feature collector HTTP endpoint")
+    parser.add_argument("--model-dir",     default="pad_onap_v3/models",
+                        help="Thư mục chứa XGBoost + Transformer đã train")
+    parser.add_argument("--data-dir",      default="pad_onap_v3/processed",
+                        help="Thư mục chứa scaler.pkl (fallback)")
+    parser.add_argument("--device",        default="cpu",
+                        choices=["cpu", "cuda"], help="Device cho Transformer")
     args = parser.parse_args()
 
     if os.environ.get("PAD_ONAP_STUB", "true").lower() != "false" and not args.dry_run:
@@ -337,13 +353,17 @@ if __name__ == "__main__":
         sys.exit(1)
 
     rec = run_s2(
-        attack_mode = args.attack_mode,
-        gnmi_url    = args.gnmi_url,
-        bridge      = args.bridge,
-        src_ip      = args.src_ip,
-        vnf_port    = args.vnf_port,
-        dry_run     = args.dry_run,
-        cleanup     = not args.no_cleanup,
+        attack_mode   = args.attack_mode,
+        gnmi_url      = args.gnmi_url,
+        bridge        = args.bridge,
+        src_ip        = args.src_ip,
+        vnf_port      = args.vnf_port,
+        dry_run       = args.dry_run,
+        cleanup       = not args.no_cleanup,
+        collector_url = args.collector_url,
+        model_dir     = args.model_dir,
+        data_dir      = args.data_dir,
+        device        = args.device,
     )
     rec.print_table()
 
@@ -352,6 +372,10 @@ if __name__ == "__main__":
     from dataclasses import asdict
     out = Path(_ROOT) / "evaluation" / "results" / "s2_real_onap.json"
     out.parent.mkdir(parents=True, exist_ok=True)
+    payload = asdict(rec)
+    payload["detection_lat_ms"]      = rec.detection_lat_ms
+    payload["pipeline_e2e_ms"]       = rec.pipeline_e2e_ms
+    payload["time_to_mitigation_ms"] = rec.time_to_mitigation_ms
     with open(out, "w") as f:
-        json.dump(asdict(rec), f, indent=2)
+        json.dump(payload, f, indent=2)
     print(f"\n  Result saved → {out}")
