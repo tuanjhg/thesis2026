@@ -51,20 +51,29 @@ def _run(cmd: str, check=False, timeout=None) -> subprocess.CompletedProcess:
                           check=check, timeout=timeout)
 
 
-def ensure_kafka(broker: str, compose_dir: Path, wait_s: int = 60) -> None:
+def ensure_kafka(broker: str, compose_dir: Path, wait_s: int = 60, skip_setup: bool = False) -> None:
     """Bring up the kafka service via docker compose if not already running.
     Block until broker accepts connections (probed via kafka-python)."""
     host, port = broker.split(':')
     logger.info(f"*** Đảm bảo Kafka chạy tại {broker} (compose dir: {compose_dir})")
 
-    # Check if kafka container running
-    chk = _run("docker ps --format '{{.Names}}' | grep -w pad-kafka")
-    if chk.returncode != 0:
-        logger.info("    pad-kafka chưa chạy — docker compose up -d kafka...")
-        up = _run(f"cd '{compose_dir}' && docker compose up -d kafka")
-        if up.returncode != 0:
-            logger.error(f"docker compose up failed:\n{up.stderr}")
-            sys.exit(1)
+    if not skip_setup:
+        # Check if kafka container running
+        try:
+            chk = _run("docker ps --format '{{.Names}}' | grep -w pad-kafka")
+            if chk.returncode != 0:
+                logger.info("    pad-kafka chưa chạy — docker compose up -d kafka...")
+                up = _run(f"cd '{compose_dir}' && docker compose up -d kafka")
+                if up.returncode != 0:
+                    logger.warning(f"    ⚠ docker compose up failed:\n{up.stderr}")
+                    logger.warning("      Có thể docker không có trong PATH của sudo. Sẽ thử kết nối trực tiếp...")
+            else:
+                logger.info("    ✓ Container pad-kafka đang chạy.")
+        except Exception as e:
+            logger.warning(f"    ⚠ Không thể kiểm tra Docker: {e}")
+            logger.warning("      Sẽ bỏ qua bước check container và thử kết nối Kafka trực tiếp...")
+    else:
+        logger.info("    [--skip-kafka-setup] Bỏ qua bước kiểm tra container Docker.")
 
     # Wait for broker reachable
     from kafka import KafkaProducer
@@ -197,7 +206,7 @@ class E2EEvaluator:
         compose_dir = _ROOT / 'testbed'
 
         # 0. Ensure Kafka is up
-        ensure_kafka(broker, compose_dir)
+        ensure_kafka(broker, compose_dir, skip_setup=self.args.skip_kafka_setup)
 
         # 1. Start flink_processor (consumes pad.telemetry.raw → publishes pad.telemetry.features)
         flink_log = _ROOT / 'evaluation' / 'results' / f'flink_{self.mode}.log'
@@ -558,6 +567,8 @@ if __name__ == '__main__':
     parser.add_argument('--data-dir',  default=str(_ROOT/'pad_onap_v3'/'processed'))
     parser.add_argument('--shap', action='store_true',
                         help='Bật SHAP (chỉ áp dụng cho --mode ai)')
+    parser.add_argument('--skip-kafka-setup', action='store_true',
+                        help='Bỏ qua bước kiểm tra/khởi động Kafka qua Docker Compose')
     args = parser.parse_args()
 
     if os.name != 'nt' and os.geteuid() != 0:
