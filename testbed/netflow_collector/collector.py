@@ -31,7 +31,87 @@ import time
 import urllib.request
 from collections import deque
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from datetime import datetime, timezone
 from typing import Optional
+
+
+# ── Kafka publisher (publishes feature snapshots as gNMI-format metrics) ──────
+# Schema mirrors what pipeline/s2_features/flink_processor.py expects on
+# topic `pad.telemetry.raw`, so the existing Flink stage can sliding-window
+# aggregate them without modification. We keep the in-process feature
+# extraction (collector already aggregates 5s windows) and re-emit the
+# computed features as a per-interval "metrics" snapshot that maps back
+# to gNMI field names. mean() across identical snapshots in Flink's 5s
+# window therefore yields the same vector → no information loss.
+
+class _KafkaPublisher:
+    TOPIC_RAW = 'pad.telemetry.raw'
+
+    def __init__(self, broker: str):
+        from kafka import KafkaProducer
+        self._producer = KafkaProducer(
+            bootstrap_servers=[broker],
+            value_serializer=lambda v: json.dumps(v).encode('utf-8'),
+            key_serializer=lambda k: k.encode('utf-8') if k else None,
+            acks=1,
+            retries=5,
+            retry_backoff_ms=500,
+            linger_ms=100,
+            compression_type='gzip',
+            request_timeout_ms=10_000,
+            max_block_ms=5_000,
+        )
+        # Probe — raises if broker unreachable
+        self._producer.partitions_for(self.TOPIC_RAW)
+        print(f'[Collector→Kafka] Connected to broker {broker}, topic {self.TOPIC_RAW}')
+
+    def publish(self, vec: dict) -> None:
+        f = vec.get('features', {})
+        if not f:
+            return
+        # Map the 17 PAD-ONAP features back into gNMI metric field names that
+        # flink_processor.extract_features() consumes. Putting all weight into
+        # the *_in side and zeroing out *_out keeps mean('in_pkts')+mean('out_pkts')
+        # equal to pkt_rate over Flink's 5s aggregation window.
+        metrics = {
+            'in_pkts':            f['pkt_rate'],
+            'out_pkts':           0.0,
+            'in_bytes':           f['byte_rate'],
+            'out_bytes':          0.0,
+            'src_ip_entropy':     f['src_ip_entropy'],
+            'dst_ip_entropy':     f['dst_ip_entropy'],
+            'src_port_entropy':   f['src_port_entropy'],
+            'dst_port_entropy':   f['dst_port_entropy'],
+            'tcp_ratio':          f['proto_dist_tcp'],
+            'udp_ratio':          f['proto_dist_udp'],
+            'icmp_ratio':         f['proto_dist_icmp'],
+            'syn_ratio':          f['syn_ratio'],
+            'fin_ratio':          f['fin_ratio'],
+            'avg_pkt_size':       f['avg_pkt_size'],
+            'new_flows_rate':     f['new_flows_rate'],
+            'flow_duration_mean': f['flow_duration_mean'],
+            'iat_mean_ms':        f['inter_arrival_mean'],
+            'iat_std_ms':         f['inter_arrival_std'],
+        }
+        payload = {
+            'timestamp': datetime.now(timezone.utc).isoformat(),
+            'source':    'netflow-collector',
+            'metrics':   metrics,
+        }
+        try:
+            self._producer.send(self.TOPIC_RAW, key='netflow', value=payload)
+        except Exception as e:
+            print(f'[Collector→Kafka] send error: {e}')
+
+    def close(self):
+        try:
+            self._producer.flush(timeout=5)
+            self._producer.close(timeout=5)
+        except Exception:
+            pass
+
+
+_kafka_publisher: Optional[_KafkaPublisher] = None
 
 
 # ── NetFlow v5 record format ──────────────────────────────────────────────────
@@ -428,6 +508,8 @@ class CollectorHandler(BaseHTTPRequestHandler):
 def _append_feature(vec: dict):
     with _history_lock:
         _feature_history.append(vec)
+    if _kafka_publisher is not None:
+        _kafka_publisher.publish(vec)
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -444,7 +526,18 @@ def main():
                         help='gNMI simulator URL (mode=synthetic)')
     parser.add_argument('--interval', type=float, default=1.0,
                         help='Feature computation interval (seconds)')
+    parser.add_argument('--kafka-broker', default=None,
+                        help='Kafka broker (host:port). When set, each computed feature '
+                             'snapshot is also published to topic pad.telemetry.raw.')
     args = parser.parse_args()
+
+    if args.kafka_broker:
+        global _kafka_publisher
+        try:
+            _kafka_publisher = _KafkaPublisher(args.kafka_broker)
+        except Exception as e:
+            print(f'[Collector] WARNING: Kafka publisher disabled: {e}')
+            _kafka_publisher = None
 
     # Start REST API
     try:
