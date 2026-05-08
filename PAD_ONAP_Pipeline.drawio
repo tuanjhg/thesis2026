@@ -1,0 +1,258 @@
+﻿<mxGraphModel dx="1422" dy="762" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1654" pageHeight="1169" math="0" shadow="0">
+  <root>
+    <mxCell id="0" />
+    <mxCell id="1" parent="0" />
+
+    <!-- TITLE BAR -->
+    <mxCell id="title" value="PAD-ONAP &amp;#183; Four-Stage AI-Augmented NFV Orchestration Pipeline"
+      style="text;html=1;align=center;verticalAlign=middle;fontStyle=1;fontSize=18;fontFamily=Calibri;fontColor=#1B3A6B;fillColor=none;strokeColor=none;"
+      vertex="1" parent="1">
+      <mxGeometry x="30" y="30" width="1560" height="50" as="geometry" />
+    </mxCell>
+
+    <!-- SUBTITLE NOTE -->
+    <mxCell id="subtitle" value="Every 5-second telemetry window traverses all four stages. The AIOutputPayload JSON on DMaaP is the key decoupling boundary — S3 and S4 can be upgraded independently."
+      style="text;html=1;align=center;verticalAlign=middle;fontSize=11;fontFamily=Calibri;fontColor=#6B7280;fillColor=none;strokeColor=none;fontStyle=2;"
+      vertex="1" parent="1">
+      <mxGeometry x="30" y="686" width="1380" height="30" as="geometry" />
+    </mxCell>
+
+    <!-- ====== S1 SWIMLANE ====== -->
+    <mxCell id="s1_lane" value=""
+      style="swimlane;startSize=0;fillColor=#F3FAF3;strokeColor=#6AAF5C;strokeWidth=2;rounded=1;arcSize=4;fontFamily=Calibri;"
+      vertex="1" parent="1">
+      <mxGeometry x="30" y="106" width="285" height="490" as="geometry" />
+    </mxCell>
+    <mxCell id="s1_badge" value="S1"
+      style="ellipse;fillColor=#6AAF5C;strokeColor=none;fontColor=#FFFFFF;fontStyle=1;fontSize=18;fontFamily=Calibri;verticalAlign=middle;"
+      vertex="1" parent="s1_lane">
+      <mxGeometry x="108" y="24" width="70" height="70" as="geometry" />
+    </mxCell>
+    <mxCell id="s1_title" value="Telemetry Collection"
+      style="text;html=1;align=center;fontStyle=1;fontSize=13;fontFamily=Calibri;fontColor=#2D5016;fillColor=none;strokeColor=none;"
+      vertex="1" parent="s1_lane">
+      <mxGeometry x="10" y="100" width="265" height="26" as="geometry" />
+    </mxCell>
+    <mxCell id="s1_gnmi" value="&lt;b&gt;gNMI Scraper&lt;/b&gt;&lt;br/&gt;Per-device counters&lt;br/&gt;every 5 s"
+      style="rounded=1;arcSize=15;fillColor=#FFFFFF;strokeColor=#6AAF5C;strokeWidth=1.5;fontFamily=Calibri;fontSize=11;align=center;verticalAlign=middle;html=1;"
+      vertex="1" parent="s1_lane">
+      <mxGeometry x="20" y="138" width="245" height="70" as="geometry" />
+    </mxCell>
+    <mxCell id="s1_netflow" value="&lt;b&gt;NetFlow v5 Collector&lt;/b&gt;&lt;br/&gt;Optional flow records&lt;br/&gt;(UDP port 2055)"
+      style="rounded=1;arcSize=15;fillColor=#FFFFFF;strokeColor=#6AAF5C;strokeWidth=1.5;fontFamily=Calibri;fontSize=11;align=center;verticalAlign=middle;html=1;"
+      vertex="1" parent="s1_lane">
+      <mxGeometry x="20" y="228" width="245" height="70" as="geometry" />
+    </mxCell>
+    <mxCell id="s1_arrow" value=""
+      style="edgeStyle=orthogonalEdgeStyle;strokeColor=#6AAF5C;strokeWidth=1.5;endArrow=block;endFill=1;"
+      edge="1" parent="s1_lane" source="s1_gnmi" target="s1_netflow">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+    <mxCell id="s1_out" value="Output: Raw 5-s telemetry window"
+      style="text;html=1;align=center;fontSize=10;fontFamily=Calibri;fontColor=#4B5563;fillColor=#E8F5E3;strokeColor=#6AAF5C;strokeWidth=1;rounded=1;arcSize=20;"
+      vertex="1" parent="s1_lane">
+      <mxGeometry x="15" y="428" width="255" height="30" as="geometry" />
+    </mxCell>
+
+    <!-- S1 to S2 arrow -->
+    <mxCell id="arr_s1_s2" value="raw window"
+      style="edgeStyle=orthogonalEdgeStyle;rounded=0;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;strokeColor=#374151;strokeWidth=2.5;fontFamily=Calibri;fontSize=11;fontStyle=2;endArrow=block;endFill=1;"
+      edge="1" parent="1" source="s1_lane" target="s2_lane">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+
+    <!-- ====== S2 SWIMLANE ====== -->
+    <mxCell id="s2_lane" value=""
+      style="swimlane;startSize=0;fillColor=#EBF3FB;strokeColor=#2E75B6;strokeWidth=2;rounded=1;arcSize=4;fontFamily=Calibri;"
+      vertex="1" parent="1">
+      <mxGeometry x="375" y="106" width="300" height="490" as="geometry" />
+    </mxCell>
+    <mxCell id="s2_badge" value="S2"
+      style="ellipse;fillColor=#2E75B6;strokeColor=none;fontColor=#FFFFFF;fontStyle=1;fontSize=18;fontFamily=Calibri;verticalAlign=middle;"
+      vertex="1" parent="s2_lane">
+      <mxGeometry x="115" y="24" width="70" height="70" as="geometry" />
+    </mxCell>
+    <mxCell id="s2_title" value="Feature Engineering"
+      style="text;html=1;align=center;fontStyle=1;fontSize=13;fontFamily=Calibri;fontColor=#1B3A6B;fillColor=none;strokeColor=none;"
+      vertex="1" parent="s2_lane">
+      <mxGeometry x="10" y="100" width="280" height="26" as="geometry" />
+    </mxCell>
+    <mxCell id="s2_vec" value="17-Dimensional Feature Vector  x &amp;#8712; &amp;#8477;&lt;sup&gt;17&lt;/sup&gt;"
+      style="text;html=1;align=center;fontStyle=1;fontSize=11;fontFamily=Calibri;fontColor=#1B3A6B;fillColor=none;strokeColor=none;"
+      vertex="1" parent="s2_lane">
+      <mxGeometry x="10" y="132" width="280" height="22" as="geometry" />
+    </mxCell>
+    <mxCell id="s2_rate" value="&lt;b&gt;Rate Features (6)&lt;/b&gt;&lt;br/&gt;pkt_rate &amp;#183; byte_rate&lt;br/&gt;inter_arrival mean/std/min/max"
+      style="rounded=1;arcSize=12;fillColor=#FFFFFF;strokeColor=#2E75B6;strokeWidth=1.5;fontFamily=Calibri;fontSize=10;align=center;verticalAlign=middle;html=1;"
+      vertex="1" parent="s2_lane">
+      <mxGeometry x="15" y="160" width="270" height="66" as="geometry" />
+    </mxCell>
+    <mxCell id="s2_entropy" value="&lt;b&gt;Entropy Features (5)&lt;/b&gt;&lt;br/&gt;src/dst_port &amp;#183; src/dst_ip entropy&lt;br/&gt;flow_entropy"
+      style="rounded=1;arcSize=12;fillColor=#FFFFFF;strokeColor=#2E75B6;strokeWidth=1.5;fontFamily=Calibri;fontSize=10;align=center;verticalAlign=middle;html=1;"
+      vertex="1" parent="s2_lane">
+      <mxGeometry x="15" y="240" width="270" height="66" as="geometry" />
+    </mxCell>
+    <mxCell id="s2_proto" value="&lt;b&gt;Protocol-Mix Features (6)&lt;/b&gt;&lt;br/&gt;proto_dist tcp/udp/icmp &amp;#183; syn_ratio&lt;br/&gt;avg_pkt_size &amp;#183; flow_rate"
+      style="rounded=1;arcSize=12;fillColor=#FFFFFF;strokeColor=#2E75B6;strokeWidth=1.5;fontFamily=Calibri;fontSize=10;align=center;verticalAlign=middle;html=1;"
+      vertex="1" parent="s2_lane">
+      <mxGeometry x="15" y="320" width="270" height="66" as="geometry" />
+    </mxCell>
+    <mxCell id="s2_out" value="Output: Feature vector  x &amp;#8712; &amp;#8477;&lt;sup&gt;17&lt;/sup&gt;"
+      style="text;html=1;align=center;fontSize=10;fontFamily=Calibri;fontColor=#4B5563;fillColor=#DBEAFE;strokeColor=#2E75B6;strokeWidth=1;rounded=1;arcSize=20;"
+      vertex="1" parent="s2_lane">
+      <mxGeometry x="15" y="428" width="270" height="30" as="geometry" />
+    </mxCell>
+
+    <!-- S2 to S3 arrow -->
+    <mxCell id="arr_s2_s3" value="x &amp;#8712; &amp;#8477;&lt;sup&gt;17&lt;/sup&gt;"
+      style="edgeStyle=orthogonalEdgeStyle;rounded=0;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;strokeColor=#374151;strokeWidth=2.5;fontFamily=Calibri;fontSize=11;fontStyle=2;endArrow=block;endFill=1;html=1;"
+      edge="1" parent="1" source="s2_lane" target="s3_lane">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+
+    <!-- ====== S3 SWIMLANE ====== -->
+    <mxCell id="s3_lane" value=""
+      style="swimlane;startSize=0;fillColor=#F5F0FF;strokeColor=#7C3AED;strokeWidth=2;rounded=1;arcSize=4;fontFamily=Calibri;"
+      vertex="1" parent="1">
+      <mxGeometry x="735" y="106" width="340" height="490" as="geometry" />
+    </mxCell>
+    <mxCell id="s3_badge" value="S3"
+      style="ellipse;fillColor=#7C3AED;strokeColor=none;fontColor=#FFFFFF;fontStyle=1;fontSize=18;fontFamily=Calibri;verticalAlign=middle;"
+      vertex="1" parent="s3_lane">
+      <mxGeometry x="135" y="24" width="70" height="70" as="geometry" />
+    </mxCell>
+    <mxCell id="s3_title" value="AI Inference"
+      style="text;html=1;align=center;fontStyle=1;fontSize=13;fontFamily=Calibri;fontColor=#4C1D95;fillColor=none;strokeColor=none;"
+      vertex="1" parent="s3_lane">
+      <mxGeometry x="10" y="100" width="320" height="26" as="geometry" />
+    </mxCell>
+    <mxCell id="s3_xgb" value="&lt;b&gt;Track A &amp;#183; XGBoost Detector&lt;/b&gt;&lt;br/&gt;7-class &amp;#183; 400 trees &amp;#183; depth 6&lt;br/&gt;Acc 0.9825 &amp;#183; F1 0.9642 &amp;#183; AUC 0.9958&lt;br/&gt;P99 = 2.2 ms"
+      style="rounded=1;arcSize=12;fillColor=#FFFFFF;strokeColor=#7C3AED;strokeWidth=1.5;fontFamily=Calibri;fontSize=10;align=center;verticalAlign=middle;html=1;"
+      vertex="1" parent="s3_lane">
+      <mxGeometry x="15" y="138" width="310" height="82" as="geometry" />
+    </mxCell>
+    <mxCell id="s3_lstm" value="&lt;b&gt;Track B &amp;#183; Transformer + LSTM Forecaster&lt;/b&gt;&lt;br/&gt;4 horizons: t+30/60/90/120 s&lt;br/&gt;AUC 0.988 &amp;rarr; 0.971 &amp;#183; P99 = 7.68 ms&lt;br/&gt;FGSM adversarial aug. (&amp;epsilon;=0.02)"
+      style="rounded=1;arcSize=12;fillColor=#FFFFFF;strokeColor=#7C3AED;strokeWidth=1.5;fontFamily=Calibri;fontSize=10;align=center;verticalAlign=middle;html=1;"
+      vertex="1" parent="s3_lane">
+      <mxGeometry x="15" y="238" width="310" height="82" as="geometry" />
+    </mxCell>
+    <mxCell id="s3_payload" value="&lt;b&gt;AIOutputPayload JSON&lt;/b&gt;&lt;br/&gt;attack_class &amp;#183; confidence &amp;#183; forecast[4]&lt;br/&gt;top_features (SHAP) &amp;#183; suggested_tier &amp;#183; proactive"
+      style="rounded=1;arcSize=12;fillColor=#EDE9FE;strokeColor=#7C3AED;strokeWidth=2;fontFamily=Calibri;fontSize=10;align=center;verticalAlign=middle;html=1;fontColor=#4C1D95;"
+      vertex="1" parent="s3_lane">
+      <mxGeometry x="15" y="338" width="310" height="66" as="geometry" />
+    </mxCell>
+    <mxCell id="s3_out" value="Output: AIOutputPayload JSON on DMaaP"
+      style="text;html=1;align=center;fontSize=10;fontFamily=Calibri;fontColor=#4B5563;fillColor=#EDE9FE;strokeColor=#7C3AED;strokeWidth=1;rounded=1;arcSize=20;"
+      vertex="1" parent="s3_lane">
+      <mxGeometry x="15" y="428" width="310" height="30" as="geometry" />
+    </mxCell>
+
+    <!-- S3 to S4 prominent arrow -->
+    <mxCell id="arr_s3_s4" value="AIOutputPayload JSON&lt;br/&gt;(DMaaP &amp;#183; Kafka topic)"
+      style="edgeStyle=orthogonalEdgeStyle;rounded=0;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;strokeColor=#7C3AED;strokeWidth=3;fontFamily=Calibri;fontSize=10;fontStyle=1;endArrow=block;endFill=1;html=1;align=center;"
+      edge="1" parent="1" source="s3_lane" target="s4_lane">
+      <mxGeometry relative="1" as="geometry" />
+    </mxCell>
+
+    <!-- ====== S4 SWIMLANE ====== -->
+    <mxCell id="s4_lane" value=""
+      style="swimlane;startSize=0;fillColor=#FFFBEB;strokeColor=#D97706;strokeWidth=2;rounded=1;arcSize=4;fontFamily=Calibri;"
+      vertex="1" parent="1">
+      <mxGeometry x="1135" y="106" width="380" height="490" as="geometry" />
+    </mxCell>
+    <mxCell id="s4_badge" value="S4"
+      style="ellipse;fillColor=#D97706;strokeColor=none;fontColor=#FFFFFF;fontStyle=1;fontSize=18;fontFamily=Calibri;verticalAlign=middle;"
+      vertex="1" parent="s4_lane">
+      <mxGeometry x="155" y="24" width="70" height="70" as="geometry" />
+    </mxCell>
+    <mxCell id="s4_title" value="NFV Orchestration"
+      style="text;html=1;align=center;fontStyle=1;fontSize=13;fontFamily=Calibri;fontColor=#78350F;fillColor=none;strokeColor=none;"
+      vertex="1" parent="s4_lane">
+      <mxGeometry x="10" y="100" width="360" height="26" as="geometry" />
+    </mxCell>
+    <mxCell id="s4_policy" value="&lt;b&gt;5-Tier Policy State Machine&lt;/b&gt;&lt;br/&gt;T0 Normal &amp;#183; T1 Alert &amp;#183; T2 Preempt (505 ms)&lt;br/&gt;T3 Mitigate (6006 ms) &amp;#183; T4 Severe&lt;br/&gt;Hysteresis k=2 &amp;#183; Frequency guard 50 s"
+      style="rounded=1;arcSize=12;fillColor=#FFFFFF;strokeColor=#D97706;strokeWidth=1.5;fontFamily=Calibri;fontSize=10;align=center;verticalAlign=middle;html=1;"
+      vertex="1" parent="s4_lane">
+      <mxGeometry x="15" y="138" width="350" height="82" as="geometry" />
+    </mxCell>
+    <mxCell id="s4_lp" value="&lt;b&gt;LP Multi-Tenant SLA Allocator&lt;/b&gt;&lt;br/&gt;HiGHS solver &amp;#183; max &amp;#931; w&lt;sub&gt;u&lt;/sub&gt; &amp;#183; a&lt;sub&gt;u&lt;/sub&gt;&lt;br/&gt;URLLC floor 150 Mbps &amp;#183; eMBB 100 &amp;#183; mMTC 50&lt;br/&gt;Guaranteed 8/8 scenarios"
+      style="rounded=1;arcSize=12;fillColor=#FFFFFF;strokeColor=#D97706;strokeWidth=1.5;fontFamily=Calibri;fontSize=10;align=center;verticalAlign=middle;html=1;"
+      vertex="1" parent="s4_lane">
+      <mxGeometry x="15" y="236" width="350" height="82" as="geometry" />
+    </mxCell>
+    <mxCell id="s4_onap" value="&lt;b&gt;ONAP SO v7 REST Client&lt;/b&gt;&lt;br/&gt;vnfd-ratelimiter-v1 (T2) &amp;#183; vnfd-scrubber-v1 (T3)&lt;br/&gt;vnfd-blackhole-v1 (T4) &amp;#183; SFC chain steering"
+      style="rounded=1;arcSize=12;fillColor=#FFFFFF;strokeColor=#D97706;strokeWidth=1.5;fontFamily=Calibri;fontSize=10;align=center;verticalAlign=middle;html=1;"
+      vertex="1" parent="s4_lane">
+      <mxGeometry x="15" y="334" width="350" height="66" as="geometry" />
+    </mxCell>
+    <mxCell id="s4_out" value="Output: VNF instantiation &amp;#183; SLA allocation result"
+      style="text;html=1;align=center;fontSize=10;fontFamily=Calibri;fontColor=#4B5563;fillColor=#FEF3C7;strokeColor=#D97706;strokeWidth=1;rounded=1;arcSize=20;"
+      vertex="1" parent="s4_lane">
+      <mxGeometry x="15" y="428" width="350" height="30" as="geometry" />
+    </mxCell>
+
+    <!-- Feedback arrow S4 to S3 (dashed blue) -->
+    <mxCell id="arr_feedback" value="DMaaP &amp;#183; CLAMP &amp;#183; Policy feedback"
+      style="edgeStyle=orthogonalEdgeStyle;rounded=0;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;strokeColor=#2E75B6;strokeWidth=2;dashed=1;dashPattern=8 4;fontFamily=Calibri;fontSize=10;fontStyle=2;endArrow=block;endFill=1;html=1;align=center;"
+      edge="1" parent="1" source="s4_lane" target="s3_lane">
+      <mxGeometry relative="1" as="geometry">
+        <Array as="points">
+          <mxPoint x="1325" y="660" />
+          <mxPoint x="905" y="660" />
+        </Array>
+      </mxGeometry>
+    </mxCell>
+
+    <!-- LEGEND -->
+    <mxCell id="legend_bg" value=""
+      style="rounded=1;arcSize=8;fillColor=#F9FAFB;strokeColor=#D1D5DB;strokeWidth=1;"
+      vertex="1" parent="1">
+      <mxGeometry x="1430" y="620" width="190" height="120" as="geometry" />
+    </mxCell>
+    <mxCell id="legend_title" value="Legend"
+      style="text;html=1;align=left;fontStyle=1;fontSize=11;fontFamily=Calibri;fontColor=#1B3A6B;fillColor=none;strokeColor=none;"
+      vertex="1" parent="1">
+      <mxGeometry x="1445" y="628" width="160" height="20" as="geometry" />
+    </mxCell>
+    <mxCell id="leg1" value=""
+      style="endArrow=block;endFill=1;strokeColor=#374151;strokeWidth=2.5;"
+      edge="1" parent="1">
+      <mxGeometry x="1445" y="660" width="1" height="1" as="geometry">
+        <mxPoint x="1445" y="660" as="sourcePoint" />
+        <mxPoint x="1490" y="660" as="targetPoint" />
+      </mxGeometry>
+    </mxCell>
+    <mxCell id="leg1_lbl" value="Data flow"
+      style="text;html=1;align=left;fontSize=10;fontFamily=Calibri;fillColor=none;strokeColor=none;"
+      vertex="1" parent="1">
+      <mxGeometry x="1496" y="652" width="120" height="18" as="geometry" />
+    </mxCell>
+    <mxCell id="leg2" value=""
+      style="endArrow=block;endFill=1;strokeColor=#7C3AED;strokeWidth=3;"
+      edge="1" parent="1">
+      <mxGeometry x="1445" y="684" width="1" height="1" as="geometry">
+        <mxPoint x="1445" y="684" as="sourcePoint" />
+        <mxPoint x="1490" y="684" as="targetPoint" />
+      </mxGeometry>
+    </mxCell>
+    <mxCell id="leg2_lbl" value="Key decoupling boundary"
+      style="text;html=1;align=left;fontSize=10;fontFamily=Calibri;fillColor=none;strokeColor=none;"
+      vertex="1" parent="1">
+      <mxGeometry x="1496" y="676" width="120" height="18" as="geometry" />
+    </mxCell>
+    <mxCell id="leg3" value=""
+      style="endArrow=block;endFill=1;strokeColor=#2E75B6;strokeWidth=2;dashed=1;dashPattern=8 4;"
+      edge="1" parent="1">
+      <mxGeometry x="1445" y="708" width="1" height="1" as="geometry">
+        <mxPoint x="1445" y="708" as="sourcePoint" />
+        <mxPoint x="1490" y="708" as="targetPoint" />
+      </mxGeometry>
+    </mxCell>
+    <mxCell id="leg3_lbl" value="Feedback / CLAMP"
+      style="text;html=1;align=left;fontSize=10;fontFamily=Calibri;fillColor=none;strokeColor=none;"
+      vertex="1" parent="1">
+      <mxGeometry x="1496" y="700" width="120" height="18" as="geometry" />
+    </mxCell>
+
+  </root>
+</mxGraphModel>

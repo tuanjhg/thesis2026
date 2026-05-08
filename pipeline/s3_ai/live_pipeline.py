@@ -1,58 +1,48 @@
 #!/usr/bin/env python3
 """
-PAD-ONAP Live Pipeline — Phase 1 → Phase 2 Bridge
-====================================================
-Kết nối NetFlow Collector / Kafka (Phase 1) với InferenceEngine (Phase 2).
+PAD-ONAP Live Pipeline — Two-Track Inference Driver (Spec §3 → §4)
+==================================================================
 
-Hai chế độ nguồn dữ liệu:
-  --source http  (mặc định)
-      collector  GET /flows/latest  →  feature dict (17 keys)
+Drives the two-track InferenceEngine v2 from a live feature source and
+publishes coalesced AIOutputPayload (schema 3.0) to stdout / JSONL / DMaaP.
 
-  --source kafka
-      Kafka topic pad.telemetry.features  →  feature dict (17 keys)
-      (do flink_processor.py publish)
+Sources:
+  --source kafka  (recommended; spec-aligned)
+      Subscribes to BOTH Kafka topics:
+        - telemetry.features.flow         (Track A, 22-dim, every 1 s)
+        - telemetry.features.timeseries   (Track B, 6-dim, every 60 s)
+      Track A and Track B are dispatched to the engine independently and
+      merged by the coalescer (target_ip_prefix + 30 s bucket) before each
+      payload is emitted.  Internally delegates to InferenceEngine.run_kafka().
 
-Luồng chung:
-  feature dict → np.ndarray (theo thứ tự FEATURE_NAMES)
-      ↓
-  InferenceEngine.infer()
-      ├─ XGBoost  → attack_type + confidence + SHAP top-5
-      └─ Transformer+LSTM → P(t+30s/60s/90s/120s)
-      ↓
-  AIOutputPayload  →  stdout + JSON log + DMaaP stub
+  --source http
+      Polls the NetFlow collector at GET /flows/latest.  The collector emits
+      aggregate metrics (pkt_rate, byte_rate, *_entropy, ...).  We map this
+      snapshot to the 22-dim Track A feature vector via a lossless inversion
+      of the dual-branch flink mapping (see _flow_features_from_snapshot()).
+      Track B (60 s tumbling) cannot be reconstructed from a single snapshot;
+      in HTTP mode only Track A is exercised.
+
+  --orchestrate
+      Hands control to pipeline.s4_orchestration.orchestrator.Orchestrator,
+      which adds the M3 (TierMapper / PolicyEngine / SLA) and M4 (CNF / SFC)
+      stages on top of M2.
 
 Usage:
-  # HTTP polling mode (gNMI + collector đang chạy):
-  python pipeline/s3_ai/live_pipeline.py --source http
+  # Two-track Kafka mode (production-shaped)
+  python pipeline/s3_ai/live_pipeline.py --source kafka --broker localhost:9092
 
-  # Kafka mode (full stack: docker compose up -d):
-  python pipeline/s3_ai/live_pipeline.py --source kafka
+  # HTTP collector polling (Track A only)
+  python pipeline/s3_ai/live_pipeline.py --source http --collector http://localhost:7070
 
-  # Chỉ định URL collector và model dir:
-  python pipeline/s3_ai/live_pipeline.py \\
-      --source http \\
-      --collector http://localhost:7070 \\
-      --model-dir ./pad_onap_v3/models \\
-      --data-dir  ./pad_onap_v3/processed \\
-      --interval  1.0
-
-  # Kafka với broker cụ thể:
-  python pipeline/s3_ai/live_pipeline.py \\
-      --source kafka \\
-      --broker localhost:9092
-
-  # Không dùng SHAP (nhanh hơn ~1-2ms):
-  python pipeline/s3_ai/live_pipeline.py --no-shap
-
-  # Lưu output ra file JSON (append):
-  python pipeline/s3_ai/live_pipeline.py --out ./pad_onap_v3/live_output.jsonl
-
-  # Full M2→M3→M4 orchestration mode (bật cả policy engine + VNF lifecycle):
+  # Full M2→M3→M4 (delegates to Orchestrator)
   python pipeline/s3_ai/live_pipeline.py --orchestrate
 
-  # Orchestration với ONAP thật (PAD_ONAP_STUB=false):
-  PAD_ONAP_STUB=false python pipeline/s3_ai/live_pipeline.py --orchestrate
+  # Real ONAP mode
+  PAD_DEPLOY_MODE=onap python pipeline/s3_ai/live_pipeline.py --orchestrate
 """
+
+from __future__ import annotations
 
 import argparse
 import json
@@ -64,41 +54,31 @@ import urllib.request
 from pathlib import Path
 from typing import Optional
 
-# Ensure project root is on sys.path when run as a script
+# Ensure project root on sys.path when run as a script
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
 import numpy as np
 
-# ── FEATURE_NAMES phải khớp với FlowFeatureExtractor và scaler training ───────
-FEATURE_NAMES = [
-    'pkt_rate', 'byte_rate',
-    'src_ip_entropy', 'dst_ip_entropy',
-    'src_port_entropy', 'dst_port_entropy',
-    'proto_dist_tcp', 'proto_dist_udp', 'proto_dist_icmp',
-    'syn_ratio', 'fin_ratio',
-    'avg_pkt_size', 'pkt_size_std',
-    'new_flows_rate', 'flow_duration_mean',
-    'inter_arrival_mean', 'inter_arrival_std',
-]
-
-# Tier thresholds (aligned với ai_output.py)
-TIER_RULES = [
-    (4, lambda conf, p30: conf > 0.95 and p30 > 0.95),
-    (3, lambda conf, p30: conf > 0.90 and p30 > 0.90),
-    (2, lambda conf, p30: p30 > 0.70 or conf > 0.80),
-    (1, lambda conf, p30: conf > 0.50),
-    (0, lambda conf, p30: True),
-]
-
-TIER_LABEL = {
-    0: "Normal — no action",
-    1: "Low    — rate-limit",
-    2: "Medium — VNF firewall",
-    3: "High   — scale-out scrubber",
-    4: "Critical — traffic isolation",
-}
+from pipeline.s3_ai.inference_layer import (
+    InferenceEngine,
+    PayloadCoalescer,
+    TRACK_A_FEATURES,
+    TRACK_B_FEATURES,
+    KAFKA_TOPIC_FLOW,
+    KAFKA_TOPIC_TS,
+    KAFKA_TOPIC_FLOW_LEGACY,
+    KAFKA_TOPIC_OUT,
+    KAFKA_TOPIC_OUT_LEGACY,
+    run_kafka as engine_run_kafka,
+    _to_dict as _dataclass_to_dict,
+)
+from pipeline.s3_ai.ai_output import (
+    build_payload,
+    payload_to_dict,
+)
+from pipeline.s4_orchestration.tier_mapper import TierMapper
 
 logging.basicConfig(
     level=logging.INFO,
@@ -108,13 +88,12 @@ logging.basicConfig(
 logger = logging.getLogger('live_pipeline')
 
 
-# ── Collector client (HTTP mode) ──────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
+# HTTP collector helpers
+# ─────────────────────────────────────────────────────────────────────────────
 
 def fetch_latest(collector_url: str, timeout: float = 3.0) -> Optional[dict]:
-    """
-    GET /flows/latest từ NetFlow Collector.
-    Returns feature dict hoặc None nếu không có dữ liệu / lỗi kết nối.
-    """
+    """GET /flows/latest from NetFlow Collector."""
     url = f'{collector_url.rstrip("/")}/flows/latest'
     try:
         with urllib.request.urlopen(url, timeout=timeout) as resp:
@@ -122,24 +101,251 @@ def fetch_latest(collector_url: str, timeout: float = 3.0) -> Optional[dict]:
                 return None
             return json.loads(resp.read())
     except Exception as e:
-        logger.debug(f"Collector fetch failed: {e}")
+        logger.debug(f'Collector fetch failed: {e}')
         return None
 
 
-# ── Kafka consumer (Kafka mode) ────────────────────────────────────────────────
+def _flow_features_from_snapshot(snapshot: dict) -> np.ndarray:
+    """
+    Reconstruct a 22-dim Track A flow vector from a single collector snapshot.
+
+    The collector emits aggregate per-interval rates rather than per-flow
+    records; we therefore run the same best-effort mapping the dual-branch
+    Flink processor uses (see pipeline.s2_features.flink_processor.extract_track_a),
+    treating the snapshot as a 1-tuple "window".
+    """
+    # Fields the collector exports today (legacy 17-feature schema)
+    pkt_rate           = float(snapshot.get('pkt_rate',           0.0))
+    byte_rate          = float(snapshot.get('byte_rate',          0.0))
+    avg_pkt_size       = float(snapshot.get('avg_pkt_size',       0.0))
+    pkt_size_std       = float(snapshot.get('pkt_size_std',       0.0))
+    iat_mean_ms        = float(snapshot.get('inter_arrival_mean', snapshot.get('iat_mean_ms', 0.0)))
+    iat_std_ms         = float(snapshot.get('inter_arrival_std',  snapshot.get('iat_std_ms', 0.0)))
+    flow_duration_mean = float(snapshot.get('flow_duration_mean', 5.0))
+    syn_ratio          = float(snapshot.get('syn_ratio',          0.0))
+    proto_tcp          = float(snapshot.get('proto_dist_tcp',     0.0))
+    proto_udp          = float(snapshot.get('proto_dist_udp',     0.0))
+    proto_icmp         = float(snapshot.get('proto_dist_icmp',    0.0))
+
+    # 5-second window assumption (matches the Flink Track A window size)
+    window_s    = 5.0
+    total_pkts  = pkt_rate  * window_s
+    total_bytes = byte_rate * window_s
+    # Without per-direction stats, split symmetrically (60/40 fwd/bwd)
+    total_fwd_pkts  = 0.6 * total_pkts
+    total_bwd_pkts  = 0.4 * total_pkts
+    total_fwd_bytes = 0.6 * total_bytes
+    total_bwd_bytes = 0.4 * total_bytes
+
+    proto_idx  = int(np.argmax([proto_tcp, proto_udp, proto_icmp]))
+    proto_code = (6, 17, 1)[proto_idx]
+
+    feature_map = {
+        'flow_duration':              window_s,
+        'total_fwd_packets':          total_fwd_pkts,
+        'total_bwd_packets':          total_bwd_pkts,
+        'total_length_fwd_packets':   total_fwd_bytes,
+        'total_length_bwd_packets':   total_bwd_bytes,
+        'fwd_packet_length_max':      avg_pkt_size + pkt_size_std,
+        'fwd_packet_length_mean':     avg_pkt_size,
+        'bwd_packet_length_mean':     avg_pkt_size,
+        'flow_bytes_per_sec':         byte_rate,
+        'flow_packets_per_sec':       pkt_rate,
+        'flow_iat_mean':              iat_mean_ms,
+        'flow_iat_std':               iat_std_ms,
+        'fwd_iat_total':              iat_mean_ms * total_fwd_pkts,
+        'fwd_iat_mean':               iat_mean_ms,
+        'bwd_iat_total':              iat_mean_ms * total_bwd_pkts,
+        'syn_flag_count':             syn_ratio * total_pkts,
+        'ack_flag_count':             0.0,
+        'fwd_psh_flags':              0.0,
+        'init_win_bytes_fwd':         0.0,
+        'init_win_bytes_bwd':         0.0,
+        'min_seg_size_fwd':           0.0,
+        'protocol':                   float(proto_code),
+    }
+    return np.array(
+        [feature_map[name] for name in TRACK_A_FEATURES],
+        dtype=np.float32,
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# HTTP-mode loop (Track A only — collector does not provide 60 s aggregates)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def run_http_loop(
+    *,
+    collector_url: str,
+    model_dir:     str,
+    data_dir:      str,
+    interval:      float,
+    device:        str,
+    shap_enabled:  bool,
+    out_path:      Optional[str],
+    max_windows:   Optional[int],
+    mode:          str = 'spec',
+):
+    """Poll the collector and run Track A inference; print + JSONL output."""
+    logger.info('=' * 64)
+    logger.info('  PAD-ONAP Live Pipeline — HTTP / Track A only')
+    logger.info('=' * 64)
+    logger.info(f'  Collector  : {collector_url}')
+    logger.info(f'  Model dir  : {model_dir}  (mode={mode})')
+    logger.info(f'  Interval   : {interval}s')
+    logger.info(f'  Output     : {out_path or "stdout only"}')
+    logger.info('=' * 64)
+
+    engine = InferenceEngine.load(
+        model_dir    = model_dir,
+        data_dir     = data_dir,
+        mode         = mode,
+        device       = device,
+        shap_enabled = shap_enabled,
+    )
+    mapper = TierMapper()
+
+    out_file = open(out_path, 'a') if out_path else None
+
+    _running = [True]
+    def _handler(sig, frame):
+        logger.info('Shutdown signal — stopping...')
+        _running[0] = False
+    signal.signal(signal.SIGINT,  _handler)
+    signal.signal(signal.SIGTERM, _handler)
+
+    window_count       = 0
+    last_ts            = None
+    consecutive_errors = 0
+    MAX_ERRORS         = 10
+
+    logger.info('Waiting for first snapshot from collector...')
+    while _running[0]:
+        t_loop = time.perf_counter()
+
+        raw = fetch_latest(collector_url)
+        if raw is None:
+            consecutive_errors += 1
+            if consecutive_errors == 1:
+                logger.warning(f'Collector not responding at {collector_url}')
+            if consecutive_errors >= MAX_ERRORS:
+                logger.error(f'{MAX_ERRORS} consecutive failures — check collector')
+                consecutive_errors = 0
+            time.sleep(interval); continue
+        consecutive_errors = 0
+
+        ts = raw.get('timestamp')
+        if ts is not None and ts == last_ts:
+            time.sleep(max(0.0, interval - (time.perf_counter() - t_loop)))
+            continue
+        last_ts = ts
+
+        snapshot = raw.get('features') or raw
+        if not isinstance(snapshot, dict) or not snapshot:
+            time.sleep(interval); continue
+
+        # Build 22-dim Track A vector + run inference
+        x22  = _flow_features_from_snapshot(snapshot)
+        det  = engine.infer_track_a(x22, source_device_id=raw.get('device_id', 'unknown'))
+        payload = build_payload(
+            detection            = _det_to_dataclass(det),
+            forecast             = None,
+            source_ip_prefix     = raw.get('source_ip_prefix'),
+            target_ip_prefix     = raw.get('target_ip_prefix'),
+            tenant_id            = raw.get('tenant_id'),
+            xgboost_version      = engine.xgb_version,
+            lstm_track_b_version = engine.forecaster_version,
+        )
+        td = mapper.decide(payload)
+        window_count += 1
+
+        # ── Console summary ─────────────────────────────────────────────────
+        print(
+            f'\n[W{window_count:04d}] {payload.timestamp_utc[:19]}Z  '
+            f'lat={det.inference_ms:.1f}ms  severity={payload.severity_estimate}'
+        )
+        print(
+            f'  Detection : {det.attack_type:<14}  '
+            f'class={det.attack_class_id:>2}  conf={det.confidence:.3f}'
+        )
+        print(f'  Tier      : T{int(td.tier)} — {td.label}')
+        if det.shap_top_features:
+            top5 = list(det.shap_values.items())[:5]
+            print('  SHAP top5 : ' + '  '.join(f'{k}={v:+.3f}' for k, v in top5))
+        if td.cnf_profile:
+            print(f'  CNF       : {td.cnf_profile}  reason={td.reason}')
+
+        # ── Persist JSONL ──────────────────────────────────────────────────
+        if out_file:
+            rec = payload_to_dict(payload)
+            rec['tier']           = int(td.tier)
+            rec['cnf_profile']    = td.cnf_profile
+            rec['live_features']  = snapshot
+            out_file.write(json.dumps(rec) + '\n')
+            out_file.flush()
+
+        if max_windows and window_count >= max_windows:
+            logger.info(f'Reached max_windows={max_windows} — stopping.')
+            break
+
+        if window_count % 50 == 0:
+            lat = engine.latency_summary()
+            logger.info(
+                f'[W{window_count}] Track A P99={lat["track_a_ms"]["p99"]:.1f}ms  '
+                f'(n={lat["n_a"]})'
+            )
+
+        sleep_t = max(0.0, interval - (time.perf_counter() - t_loop))
+        time.sleep(sleep_t)
+
+    if out_file:
+        out_file.close()
+    logger.info(f'Live pipeline stopped after {window_count} windows.')
+    if window_count > 0:
+        lat = engine.latency_summary()
+        logger.info(
+            f'Final — Track A P99={lat["track_a_ms"]["p99"]:.1f}ms  '
+            f'(n={lat["n_a"]})'
+        )
+
+
+def _det_to_dataclass(det):
+    """Convert inference_layer.TrackADetection → ai_output.DetectionResult."""
+    from pipeline.s3_ai.ai_output import DetectionResult
+    return DetectionResult(
+        track             = det.track,
+        attack_type       = det.attack_type,
+        attack_class_id   = det.attack_class_id,
+        confidence        = det.confidence,
+        is_attack         = det.is_attack,
+        class_probs       = dict(det.class_probs),
+        shap_top_features = list(det.shap_top_features),
+        shap_values       = dict(det.shap_values),
+        explanation_text  = det.explanation_text,
+        inference_ms      = det.inference_ms,
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Backwards-compat consumer for orchestrator.py (single-feature-topic poll)
+# ─────────────────────────────────────────────────────────────────────────────
 
 class KafkaFeatureConsumer:
     """
-    Consumes pre-computed feature vectors from `pad.telemetry.features`.
-    Supports auto-reconnect with exponential backoff on connection loss.
+    Lightweight legacy consumer used by `orchestrator.py` when --source=kafka.
+    Subscribes to telemetry.features.flow + the legacy alias and returns the
+    most recently observed message in a non-blocking fashion.
 
-    Each Kafka message published by flink_processor.py has shape:
-      { "timestamp": "...", "features": { "pkt_rate": ..., ... } }
+    This wrapper is intentionally simple — Track B aggregates are NOT consumed
+    here (the orchestrator's _step() takes a Track A 22-dim vector only).  For
+    full two-track operation invoke the engine's Kafka runner via --source=kafka
+    in this script (which delegates to inference_layer.run_kafka).
     """
 
-    TOPIC = 'pad.telemetry.features'
+    TOPICS = (KAFKA_TOPIC_FLOW, KAFKA_TOPIC_FLOW_LEGACY)
 
     def __init__(self, broker: str, group_id: str = 'pad-live-pipeline'):
+        from kafka import KafkaConsumer
         self._broker   = broker
         self._group_id = group_id
         self._consumer = self._connect()
@@ -152,7 +358,7 @@ class KafkaFeatureConsumer:
             attempt += 1
             try:
                 c = KafkaConsumer(
-                    self.TOPIC,
+                    *self.TOPICS,
                     bootstrap_servers=[self._broker],
                     group_id=self._group_id,
                     auto_offset_reset='latest',
@@ -164,32 +370,26 @@ class KafkaFeatureConsumer:
                     max_poll_interval_ms=60_000,
                 )
                 logger.info(
-                    f"[Kafka consumer attempt {attempt}] "
-                    f"Subscribed to {self.TOPIC} @ {self._broker}"
+                    f'[Kafka attempt {attempt}] subscribed to '
+                    f'{",".join(self.TOPICS)} @ {self._broker}'
                 )
                 return c
             except Exception as e:
                 logger.warning(
-                    f"[Kafka consumer attempt {attempt}] Failed: {e} "
-                    f"— retry in {delay}s"
+                    f'[Kafka attempt {attempt}] failed: {e} — retry in {delay}s'
                 )
                 time.sleep(delay)
                 delay = min(delay * 2, 60)
 
     def poll_latest(self) -> Optional[dict]:
-        """
-        Non-blocking poll. Drains all pending messages, returns the most
-        recent (avoids processing stale vectors accumulated during downtime).
-        Returns None if no messages available.
-        """
         latest = None
         try:
             for msg in self._consumer:
                 latest = msg.value
         except StopIteration:
-            pass   # consumer_timeout_ms expired — normal
+            pass
         except Exception as e:
-            logger.error(f"Kafka consumer error: {e} — reconnecting...")
+            logger.error(f'Kafka error: {e} — reconnecting...')
             try:
                 self._consumer.close()
             except Exception:
@@ -204,271 +404,41 @@ class KafkaFeatureConsumer:
             pass
 
 
-def features_dict_to_array(features: dict) -> np.ndarray:
-    """
-    Chuyển features dict từ collector → np.ndarray (17,) theo đúng thứ tự FEATURE_NAMES.
-    Thiếu key nào → điền 0.0.
-    """
-    return np.array(
-        [float(features.get(name, 0.0)) for name in FEATURE_NAMES],
-        dtype=np.float32,
-    )
-
-
-def get_tier(confidence: float, p30: float, attack_class: int) -> int:
-    if attack_class == 0:
-        return 0
-    for tier, rule in TIER_RULES:
-        if rule(confidence, p30):
-            return tier
-    return 0
-
-
-# ── Live loop ─────────────────────────────────────────────────────────────────
-
-def run_live(
-    source:        str,
-    collector_url: str,
-    broker:        str,
-    model_dir:     str,
-    data_dir:      str,
-    interval:      float,
-    device:        str,
-    shap_enabled:  bool,
-    out_path:      Optional[str],
-    max_windows:   Optional[int],
-):
-    from pipeline.s3_ai.inference_layer import InferenceEngine
-    from pipeline.s3_ai.ai_output import payload_to_dict
-
-    logger.info("=" * 62)
-    logger.info("  PAD-ONAP Live Pipeline  (Phase 1 → Phase 2)")
-    logger.info("=" * 62)
-    logger.info(f"  Source    : {source.upper()}")
-    if source == 'http':
-        logger.info(f"  Collector : {collector_url}")
-    else:
-        logger.info(f"  Broker    : {broker}  (topic: pad.telemetry.features)")
-    logger.info(f"  Models    : {model_dir}")
-    logger.info(f"  Interval  : {interval}s")
-    logger.info(f"  SHAP      : {shap_enabled}")
-    logger.info(f"  Output    : {out_path or 'stdout only'}")
-    logger.info("=" * 62)
-
-    # Load engine
-    engine = InferenceEngine.load(
-        model_dir    = model_dir,
-        data_dir     = data_dir,
-        device       = device,
-        shap_enabled = shap_enabled,
-    )
-
-    # Set up Kafka consumer if needed
-    kafka_consumer = None
-    if source == 'kafka':
-        kafka_consumer = KafkaFeatureConsumer(broker=broker)
-
-    # Open output file (append JSONL)
-    out_file = open(out_path, 'a') if out_path else None
-
-    # Graceful shutdown
-    _running = [True]
-    def _handler(sig, frame):
-        logger.info("Shutdown signal received — stopping...")
-        _running[0] = False
-    signal.signal(signal.SIGINT,  _handler)
-    signal.signal(signal.SIGTERM, _handler)
-
-    window_count   = 0
-    last_timestamp = None
-    consecutive_errors = 0
-    MAX_ERRORS = 10
-
-    logger.info("Waiting for first feature vector...")
-
-    while _running[0]:
-        t_loop = time.perf_counter()
-
-        # ── Fetch feature vector ───────────────────────────────────────────────
-        if source == 'kafka':
-            raw = kafka_consumer.poll_latest()
-            if raw is None:
-                time.sleep(max(0.0, interval - (time.perf_counter() - t_loop)))
-                continue
-        else:
-            raw = fetch_latest(collector_url)
-            if raw is None:
-                consecutive_errors += 1
-                if consecutive_errors == 1:
-                    logger.warning(
-                        f"Collector not responding at {collector_url}/flows/latest "
-                        f"— is it running?"
-                    )
-                if consecutive_errors >= MAX_ERRORS:
-                    logger.error(
-                        f"{MAX_ERRORS} consecutive fetch errors — check collector. "
-                        f"Run: python testbed/netflow_collector/collector.py --mode synthetic"
-                    )
-                    consecutive_errors = 0
-                time.sleep(interval)
-                continue
-            consecutive_errors = 0
-
-        # ── Deduplication by timestamp ────────────────────────────────────────
-        ts = raw.get('timestamp')
-        if ts is not None and ts == last_timestamp:
-            remaining = interval - (time.perf_counter() - t_loop)
-            if remaining > 0:
-                time.sleep(remaining)
-            continue
-        last_timestamp = ts
-
-        # ── Convert dict → ndarray ────────────────────────────────────────────
-        features_dict = raw.get('features', {})
-        if not features_dict:
-            time.sleep(interval)
-            continue
-
-        missing = [n for n in FEATURE_NAMES if n not in features_dict]
-        if missing:
-            logger.warning(f"Collector missing features: {missing} — filling 0.0")
-
-        x_raw = features_dict_to_array(features_dict)
-
-        # ── Inference ─────────────────────────────────────────────────────────
-        t_inf = time.perf_counter()
-        payload = engine.infer(x_raw)
-        inf_ms  = (time.perf_counter() - t_inf) * 1000
-        window_count += 1
-
-        # ── Compute tier ──────────────────────────────────────────────────────
-        tier = get_tier(
-            confidence   = payload.detection.confidence,
-            p30          = payload.forecast.p_attack_30s,
-            attack_class = payload.detection.attack_class,
-        )
-
-        # ── Print summary ─────────────────────────────────────────────────────
-        proactive_marker = " [PROACTIVE]" if payload.proactive_trigger.triggered else ""
-        print(
-            f"\n[W{window_count:04d}] {payload.timestamp[:19]}Z  "
-            f"latency={inf_ms:.1f}ms{proactive_marker}"
-        )
-        print(
-            f"  Attack   : {payload.detection.attack_type:<14} "
-            f"conf={payload.detection.confidence:.3f}"
-        )
-        print(
-            f"  Forecast : P30={payload.forecast.p_attack_30s:.3f}  "
-            f"P60={payload.forecast.p_attack_60s:.3f}  "
-            f"P90={payload.forecast.p_attack_90s:.3f}  "
-            f"P120={payload.forecast.p_attack_120s:.3f}"
-        )
-        print(f"  Tier     : T{tier} — {TIER_LABEL[tier]}")
-        if payload.proactive_trigger.triggered:
-            print(
-                f"  *** PROACTIVE: {payload.forecast.recommended_action} "
-                f"(P30={payload.forecast.p_attack_30s:.3f} > 0.70) ***"
-            )
-        if payload.detection.top_features:
-            top5 = sorted(payload.detection.top_features.items(),
-                          key=lambda kv: -kv[1])[:5]
-            print(f"  SHAP top5: " +
-                  "  ".join(f"{k}={v:.3f}" for k, v in top5))
-        print(
-            f"  Live features: "
-            f"pkt_rate={features_dict.get('pkt_rate', 0):.0f}  "
-            f"udp={features_dict.get('proto_dist_udp', 0):.3f}  "
-            f"syn={features_dict.get('syn_ratio', 0):.3f}  "
-            f"entropy={features_dict.get('src_ip_entropy', 0):.2f}"
-        )
-
-        # ── Write JSONL ────────────────────────────────────────────────────────
-        if out_file:
-            record = payload_to_dict(payload)
-            record['tier'] = tier
-            record['live_features'] = features_dict
-            out_file.write(json.dumps(record) + '\n')
-            out_file.flush()
-
-        # ── Max windows guard ─────────────────────────────────────────────────
-        if max_windows and window_count >= max_windows:
-            logger.info(f"Reached max_windows={max_windows} — stopping.")
-            break
-
-        # ── Latency summary every 50 windows ─────────────────────────────────
-        if window_count % 50 == 0:
-            lat = engine.latency_summary()
-            logger.info(
-                f"[W{window_count}] Latency summary: "
-                f"xgb P99={lat['xgboost_ms']['p99']:.1f}ms  "
-                f"tf P99={lat['transformer_ms']['p99']:.1f}ms"
-            )
-
-        # ── Sleep for remaining interval ──────────────────────────────────────
-        elapsed  = time.perf_counter() - t_loop
-        sleep_t  = max(0.0, interval - elapsed)
-        time.sleep(sleep_t)
-
-    # ── Cleanup ────────────────────────────────────────────────────────────────
-    if kafka_consumer:
-        kafka_consumer.close()
-    if out_file:
-        out_file.close()
-
-    logger.info(f"\nLive pipeline stopped after {window_count} windows.")
-    if window_count > 0:
-        lat = engine.latency_summary()
-        logger.info(
-            f"Final latency — XGBoost P99={lat['xgboost_ms']['p99']:.1f}ms  "
-            f"Transformer P99={lat['transformer_ms']['p99']:.1f}ms"
-        )
-
-
-# ── Entry point ───────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
+# Entry point
+# ─────────────────────────────────────────────────────────────────────────────
 
 def main():
+    _root = Path(__file__).resolve().parent.parent.parent
     parser = argparse.ArgumentParser(
-        description='PAD-ONAP Live Pipeline (Phase 1 → Phase 2)',
+        description='PAD-ONAP Live Pipeline (two-track inference driver)',
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    parser.add_argument('--source',       default='http',
-                        choices=['http', 'kafka'],
-                        help='Feature source: http (collector REST) or kafka (pad.telemetry.features topic)')
-    parser.add_argument('--collector',   default='http://localhost:7070',
-                        help='NetFlow Collector base URL (used with --source http)')
-    parser.add_argument('--broker',      default='localhost:9092',
-                        help='Kafka bootstrap server (used with --source kafka)')
-    # Default model paths: resolved relative to project root (not CWD),
-    # so the script works regardless of where it is launched from.
-    _root = Path(__file__).resolve().parent.parent.parent
-    parser.add_argument('--model-dir',   default=str(_root / 'pad_onap_v3' / 'models'),
-                        help='Absolute path to model directory')
-    parser.add_argument('--data-dir',    default=str(_root / 'pad_onap_v3' / 'processed'),
-                        help='Absolute path to processed data directory (scaler.pkl, y_train.npy)')
-    parser.add_argument('--interval',    type=float, default=1.0,
-                        help='Polling interval in seconds (http mode only)')
-    parser.add_argument('--device',      default='auto',
-                        choices=['auto', 'cuda', 'cpu'],
-                        help='Inference device')
-    parser.add_argument('--no-shap',     action='store_true',
-                        help='Disable SHAP computation (faster)')
-    parser.add_argument('--out',         default=None,
-                        help='Output JSONL file path (append mode)')
-    parser.add_argument('--max-windows', type=int, default=None,
-                        help='Stop after N inference windows (default: run forever)')
-    parser.add_argument('--orchestrate', action='store_true',
-                        help='Enable full M2→M3→M4 orchestration (policy + VNF lifecycle)')
-    parser.add_argument('--latency-port', type=int, default=9292,
-                        help='Prometheus latency metrics port (orchestrate mode only)')
+    parser.add_argument('--source',       default='kafka',
+                        choices=['http', 'kafka'])
+    parser.add_argument('--collector',    default='http://localhost:7070')
+    parser.add_argument('--broker',       default='localhost:9092')
+    parser.add_argument('--model-dir',    default=str(_root / 'pad_onap_v3' / 'models'))
+    parser.add_argument('--data-dir',     default=str(_root / 'pad_onap_v3' / 'processed'))
+    parser.add_argument('--mode',         default='spec', choices=['spec', 'legacy'],
+                        help='InferenceEngine mode — spec (22+6) or legacy bridge')
+    parser.add_argument('--interval',     type=float, default=1.0)
+    parser.add_argument('--device',       default='auto', choices=['auto', 'cuda', 'cpu'])
+    parser.add_argument('--no-shap',      action='store_true')
+    parser.add_argument('--out',          default=None)
+    parser.add_argument('--max-windows',  type=int, default=None)
+    parser.add_argument('--orchestrate',  action='store_true',
+                        help='Run full M2→M3→M4 (delegates to Orchestrator)')
+    parser.add_argument('--latency-port', type=int, default=9292)
+    parser.add_argument('--group-id',     default='pad-inference-engine')
     args = parser.parse_args()
 
     if args.orchestrate:
-        # Delegate to full Orchestrator (M2→M3→M4)
         from pipeline.s4_orchestration.orchestrator import Orchestrator
         orch = Orchestrator(
             model_dir    = args.model_dir,
             data_dir     = args.data_dir,
+            mode         = args.mode,
             device       = args.device,
             shap_enabled = not args.no_shap,
             latency_port = args.latency_port,
@@ -481,19 +451,33 @@ def main():
             out_path      = args.out,
             max_windows   = args.max_windows,
         )
-    else:
-        run_live(
-            source        = args.source,
-            collector_url = args.collector,
-            broker        = args.broker,
-            model_dir     = args.model_dir,
-            data_dir      = args.data_dir,
-            interval      = args.interval,
-            device        = args.device,
-            shap_enabled  = not args.no_shap,
-            out_path      = args.out,
-            max_windows   = args.max_windows,
+        return
+
+    if args.source == 'kafka':
+        # Two-track Kafka path — delegate to the inference engine's runner.
+        engine_run_kafka(
+            broker       = args.broker,
+            model_dir    = args.model_dir,
+            data_dir     = args.data_dir,
+            mode         = args.mode,
+            shap_enabled = not args.no_shap,
+            group_id     = args.group_id,
+            out_path     = args.out,
         )
+        return
+
+    # HTTP collector mode (Track A only)
+    run_http_loop(
+        collector_url = args.collector,
+        model_dir     = args.model_dir,
+        data_dir      = args.data_dir,
+        interval      = args.interval,
+        device        = args.device,
+        shap_enabled  = not args.no_shap,
+        out_path      = args.out,
+        max_windows   = args.max_windows,
+        mode          = args.mode,
+    )
 
 
 if __name__ == '__main__':

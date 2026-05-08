@@ -1,652 +1,1264 @@
 """
-S3-AI Inference Layer — Real-time Scoring Pipeline (Spec-aligned §4.3–4.6)
+M2 — Inference Engine v2 (Spec §4 — Two-Track Hybrid Inference)
+================================================================
 
-Luồng:
-  feature_vector (17,) từ Flink
-      → StandardScaler.transform()
-      → XGBoost Booster  → 7-class probs + SHAP top-5
-      → Rolling buffer [12 timesteps]
-      → Transformer+LSTM → [P(t+30s), P(t+60s), P(t+90s), P(t+120s)]
-      → ai_output.build_output() → AIOutputPayload JSON → S4
+Architecture:
+    Kafka topic `telemetry.features.flow`        Kafka topic `telemetry.features.timeseries`
+              (Track A — 22-dim, every 1s)                 (Track B — 6-dim, every 60s)
+                       │                                              │
+                       ▼                                              ▼
+              ┌──────────────────┐                          ┌──────────────────┐
+              │ XGBoost (12-cls) │                          │ Stacked LSTM     │
+              │ + SHAP TreeExpl. │                          │ (look_back=60)   │
+              │ Track A path     │                          │ horizons 1/5/15  │
+              └────────┬─────────┘                          └────────┬─────────┘
+                       │ TrackADetection                              │ TrackBForecast
+                       └──────────────────┬───────────────────────────┘
+                                          ▼
+                                ┌────────────────────┐
+                                │  PayloadCoalescer  │
+                                │  (target_ip + 30s) │
+                                └─────────┬──────────┘
+                                          ▼
+                                Kafka topic `ai.detections`
+                                (UnifiedAIOutput, schema 3.0)
 
-Thiết kế:
-  - Stateful: giữ rolling buffer 12 timesteps trong memory
-  - Stateless từ bên ngoài: mỗi lần gọi infer() trả về 1 payload hoàn chỉnh
-  - Thread-safe cho single-threaded Flink operator
-  - Latency target: P99 < 10ms (XGBoost) + < 8ms (Transformer) = < 18ms tổng
+Operating modes:
+    mode="spec"
+        Native 22-dim XGBoost + 60-step 6-dim Stacked LSTM with horizons {1,5,15}.
+        Activates once Phase 1/2 trainers produce the new artefacts in `models_v3/`.
+    mode="legacy"   (default while Phase 1/2 are deferred)
+        Bridges the spec-aligned 22+6 message schemas to the existing 17-feature
+        7-class XGBoost and 12-step 17-feature 4-horizon Transformer+LSTM, so
+        the end-to-end pipeline keeps producing AI outputs while the new models
+        are being trained.  Bridge is documented inline at every adaptation site.
+
+Latency budget (Spec §4.2 / §4.3):
+    Track A: <50ms total (XGBoost ≤30ms + SHAP ≤20ms)
+    Track B: ≤200ms per forecast on 4-vCPU worker
 """
 
-import time
+from __future__ import annotations
+
 import json
-import pickle
 import logging
-import warnings
+import math
+import pickle
 import sys
-from collections import deque
+import time
+import uuid
+import warnings
+from collections import deque, defaultdict
+from dataclasses import dataclass, field, asdict
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
 import numpy as np
-import xgboost as xgb
 import torch
+import xgboost as xgb
 
-# Ensure project root on sys.path for both script and module usage
+# Project root on sys.path for both module + script use
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
-from pipeline.s3_ai.transformer_lstm import TransformerLSTMForecaster, N_TIMESTEPS, N_FEATURES
-from pipeline.s3_ai.ai_output import build_output, payload_to_dict, AIOutputPayload
+from pipeline.s3_ai.transformer_lstm import (
+    TransformerLSTMForecaster,
+    N_TIMESTEPS as LEGACY_N_TIMESTEPS,
+    N_FEATURES  as LEGACY_N_FEATURES,
+)
 
 warnings.filterwarnings('ignore')
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# ── Constants ─────────────────────────────────────────────────────────────────
-FEATURE_NAMES = [
-    'pkt_rate', 'byte_rate', 'src_ip_entropy', 'dst_ip_entropy',
-    'src_port_entropy', 'dst_port_entropy', 'proto_dist_tcp',
-    'proto_dist_udp', 'proto_dist_icmp', 'syn_ratio', 'fin_ratio',
-    'avg_pkt_size', 'pkt_size_std', 'new_flows_rate',
-    'flow_duration_mean', 'inter_arrival_mean', 'inter_arrival_std',
-]
-CLASS_NAMES = {
-    0: 'Normal', 1: 'UDP_Flood', 2: 'SYN_Flood', 3: 'HTTP_Flood',
-    4: 'ICMP_Flood', 5: 'Amplification', 6: 'Slow_rate',
-}
-N_CLASSES    = 7
-TOP_K_SHAP   = 5
-SHAP_SAMPLE  = 1          # số samples để tính SHAP per inference (1 = fast)
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Spec-aligned constants (Spec §3.3 / §3.4 / §4.2 / §4.3 / §4.5)
+# ─────────────────────────────────────────────────────────────────────────────
+
+TRACK_A_FEATURES: list[str] = [
+    'flow_duration', 'total_fwd_packets', 'total_bwd_packets',
+    'total_length_fwd_packets', 'total_length_bwd_packets',
+    'fwd_packet_length_max', 'fwd_packet_length_mean', 'bwd_packet_length_mean',
+    'flow_bytes_per_sec', 'flow_packets_per_sec',
+    'flow_iat_mean', 'flow_iat_std',
+    'fwd_iat_total', 'fwd_iat_mean', 'bwd_iat_total',
+    'syn_flag_count', 'ack_flag_count', 'fwd_psh_flags',
+    'init_win_bytes_fwd', 'init_win_bytes_bwd',
+    'min_seg_size_fwd', 'protocol',
+]
+N_TRACK_A_FEATURES = 22
+
+TRACK_B_FEATURES: list[str] = [
+    'pkt_count_total', 'byte_count_total',
+    'unique_src_ip_count', 'unique_dst_ip_count',
+    'avg_pkt_size', 'syn_count',
+]
+N_TRACK_B_FEATURES = 6
+TRACK_B_LOOK_BACK   = 60   # 60 one-minute timesteps
+
+# Spec §4.2 — 12-class CICDDoS2019 taxonomy
+CICDDOS_CLASSES: dict[int, str] = {
+    0:  'BENIGN',
+    1:  'DrDoS_DNS',
+    2:  'DrDoS_LDAP',
+    3:  'DrDoS_MSSQL',
+    4:  'DrDoS_NetBIOS',
+    5:  'DrDoS_NTP',
+    6:  'DrDoS_SNMP',
+    7:  'DrDoS_SSDP',
+    8:  'DrDoS_UDP',
+    9:  'Syn',
+    10: 'UDP-lag',
+    11: 'WebDDoS',
+}
+N_CICDDOS_CLASSES = 12
+
+# Spec §4.3 — horizons in minutes
+HORIZONS_MIN: tuple[int, ...] = (1, 5, 15)
+
+# Spec §5.3 — operating thresholds per horizon
+HORIZON_THRESHOLDS: dict[int, float] = {1: 0.85, 5: 0.70, 15: 0.50}
+
+# Spec §4.5 — top-K SHAP features (kept at 5 per user directive)
+TOP_K_SHAP = 5
+
+# Coalescer window (Spec §5.3 — A&AI dedup by target_ip_prefix + 30s)
+COALESCER_WINDOW_S = 30.0
+
+# Tier-A confidence trigger (Spec §5.3 disjunctive Tier 3)
+TRACK_A_CONF_T3 = 0.85
+TRACK_A_CONF_T4 = 0.95
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Spec-aligned output dataclasses (replaces ai_output.py once Phase 5 lands)
+# ─────────────────────────────────────────────────────────────────────────────
+
+@dataclass
+class TrackADetection:
+    track:               str         # always "A_XGB"
+    attack_type:         str         # one of CICDDOS_CLASSES.values()
+    attack_class_id:    int          # 0..11
+    confidence:         float        # 1 - P(BENIGN)
+    is_attack:          bool
+    class_probs:        dict         # {class_name: prob}  full 12-way
+    shap_top_features:  list[str]    # top-K names by |Shapley|
+    shap_values:        dict         # {feature_name: shap_value (signed)}
+    explanation_text:   str          # auto-generated
+    inference_ms:       float
+
+
+@dataclass
+class TrackBForecast:
+    track:                  str         # always "B_LSTM"
+    p_attack_1min:          float
+    p_attack_5min:          float
+    p_attack_15min:         float
+    pre_position_recommended: bool
+    triggered_horizon:      Optional[int]    # 1, 5, 15, or None
+    perm_importance:        dict             # {var_name: importance}
+    forecast_justification: str
+    inference_ms:           float
+
+
+@dataclass
+class UnifiedAIOutput:
+    """Spec §4.6 message published to `ai.detections`."""
+    event_id:           str
+    timestamp_utc:      str
+    schema_version:     str = "3.0"
+    source_ip_prefix:   Optional[str] = None
+    target_ip_prefix:   Optional[str] = None
+    tenant_id:          Optional[str] = None
+    severity_estimate:  str = "INFO"          # INFO/MINOR/MAJOR/CRITICAL
+    detection:          Optional[dict] = None
+    forecast:           Optional[dict] = None
+    xai:                dict = field(default_factory=dict)
+    model_versions:     dict = field(default_factory=dict)
+
+
+def _to_dict(payload) -> dict:
+    """Serialize a dataclass to a JSON-safe dict (NumPy-aware)."""
+    def _convert(o):
+        if isinstance(o, dict):
+            return {k: _convert(v) for k, v in o.items()}
+        if isinstance(o, (list, tuple)):
+            return [_convert(v) for v in o]
+        if isinstance(o, np.ndarray):
+            return o.tolist()
+        if isinstance(o, (np.floating,)):
+            return float(o)
+        if isinstance(o, (np.integer,)):
+            return int(o)
+        return o
+    return _convert(asdict(payload))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Drift detector (Spec §4.4 — ADWIN stub for Track A)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class _ADWINStub:
+    """
+    Lightweight placeholder for ADWIN(δ=0.002, buffer=10k) drift detection.
+    Real implementation will plug into `river.drift.ADWIN` at Phase 1 retrain.
+    """
+    def __init__(self, delta: float = 0.002, buffer_size: int = 10_000):
+        self.delta = delta
+        self.buf:   deque = deque(maxlen=buffer_size)
+        self.warnings_emitted: int = 0
+
+    def update(self, score: float) -> bool:
+        self.buf.append(float(score))
+        if len(self.buf) < 1_000:
+            return False
+        # Simple variance-shift heuristic; real ADWIN swaps in at Phase 1.
+        n  = len(self.buf)
+        a  = np.fromiter(self.buf, dtype=np.float32, count=n)
+        h  = a[-1_000:]
+        b  = a[:max(1_000, n // 2)]
+        if abs(float(h.mean()) - float(b.mean())) > 0.10:
+            self.warnings_emitted += 1
+            return True
+        return False
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Coalescer — Spec §5.3 dedup by (target_ip_prefix, 30s bucket)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class PayloadCoalescer:
+    """
+    Merges TrackADetection and TrackBForecast events emitted around the same
+    30-second bucket for the same target_ip_prefix into a UnifiedAIOutput.
+
+    The coalescer flushes on any of:
+      - Both Track A and Track B contributed to the bucket
+      - Bucket age exceeds COALESCER_WINDOW_S (forced flush — partial payload)
+    """
+
+    def __init__(self, window_s: float = COALESCER_WINDOW_S):
+        self.window_s = window_s
+        # key: (target_ip_prefix, bucket_id) → dict with 'a','b','t0',meta
+        self._buckets: dict[tuple[str, int], dict] = {}
+
+    def _bucket_key(self, target: str, t: float) -> tuple[str, int]:
+        return (target or 'unknown', int(t // self.window_s))
+
+    def add_track_a(
+        self,
+        det: TrackADetection,
+        *,
+        source_ip_prefix: Optional[str],
+        target_ip_prefix: Optional[str],
+        tenant_id: Optional[str],
+    ) -> Optional[UnifiedAIOutput]:
+        return self._merge('a', det, source_ip_prefix, target_ip_prefix, tenant_id)
+
+    def add_track_b(
+        self,
+        fc: TrackBForecast,
+        *,
+        source_ip_prefix: Optional[str],
+        target_ip_prefix: Optional[str],
+        tenant_id: Optional[str],
+    ) -> Optional[UnifiedAIOutput]:
+        return self._merge('b', fc, source_ip_prefix, target_ip_prefix, tenant_id)
+
+    def _merge(self, kind, item, src, tgt, tenant) -> Optional[UnifiedAIOutput]:
+        now = time.time()
+        key = self._bucket_key(tgt, now)
+        slot = self._buckets.setdefault(key, {
+            'a': None, 'b': None, 't0': now,
+            'src': src, 'tgt': tgt, 'tenant': tenant,
+        })
+        slot[kind] = item
+        # Update late-arriving meta if missing
+        slot['src']    = slot['src']    or src
+        slot['tgt']    = slot['tgt']    or tgt
+        slot['tenant'] = slot['tenant'] or tenant
+
+        # Flush when both tracks present
+        if slot['a'] is not None and slot['b'] is not None:
+            return self._build(self._buckets.pop(key))
+        return None
+
+    def flush_stale(self) -> list[UnifiedAIOutput]:
+        """Force-emit any buckets older than window_s with whatever is present."""
+        now = time.time()
+        stale = [k for k, s in self._buckets.items() if now - s['t0'] >= self.window_s]
+        out = []
+        for k in stale:
+            s = self._buckets.pop(k)
+            if s['a'] is not None or s['b'] is not None:
+                out.append(self._build(s))
+        return out
+
+    @staticmethod
+    def _severity(track_a: Optional[TrackADetection],
+                  track_b: Optional[TrackBForecast]) -> str:
+        conf = track_a.confidence if track_a else 0.0
+        p1   = track_b.p_attack_1min  if track_b else 0.0
+        if conf >= TRACK_A_CONF_T4 or p1 >= 0.95:
+            return 'CRITICAL'
+        if conf >= TRACK_A_CONF_T3 or p1 >= HORIZON_THRESHOLDS[1]:
+            return 'MAJOR'
+        if (track_b and track_b.p_attack_5min >= HORIZON_THRESHOLDS[5]):
+            return 'MINOR'
+        return 'INFO'
+
+    def _build(self, slot: dict) -> UnifiedAIOutput:
+        a: Optional[TrackADetection] = slot['a']
+        b: Optional[TrackBForecast]  = slot['b']
+
+        det_dict = _to_dict(a) if a is not None else None
+        fc_dict  = _to_dict(b) if b is not None else None
+
+        xai: dict = {}
+        if a is not None:
+            xai['shap_top_features'] = a.shap_top_features
+            xai['shap_values']       = a.shap_values
+            xai['explanation_text']  = a.explanation_text
+        if b is not None:
+            xai['perm_importance']        = b.perm_importance
+            xai['forecast_justification'] = b.forecast_justification
+
+        return UnifiedAIOutput(
+            event_id          = str(uuid.uuid4()),
+            timestamp_utc     = datetime.now(timezone.utc).isoformat(),
+            source_ip_prefix  = slot['src'],
+            target_ip_prefix  = slot['tgt'],
+            tenant_id         = slot['tenant'],
+            severity_estimate = self._severity(a, b),
+            detection         = det_dict,
+            forecast          = fc_dict,
+            xai               = xai,
+        )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# InferenceEngine v2
+# ─────────────────────────────────────────────────────────────────────────────
 
 class InferenceEngine:
     """
-    Real-time S3-AI inference engine.
+    Two-track real-time inference engine.
 
-    Usage:
-        engine = InferenceEngine.load()
-        for window in flink_stream:
-            payload = engine.infer(window.features_17)
-            s4.send(payload_to_dict(payload))
+    Public API:
+        engine = InferenceEngine.load(model_dir, mode="legacy")
+        det    = engine.infer_track_a(features_22, source_device_id=...)
+        fc     = engine.infer_track_b(features_6,  source_device_id=...)
+
+    The caller (Kafka runner) feeds Track A and Track B messages independently
+    and uses the embedded `coalescer` to produce UnifiedAIOutput when both
+    tracks' contributions for a (target_ip_prefix, 30s) bucket are ready.
     """
 
     def __init__(
         self,
-        booster:      xgb.Booster,
-        transformer:  TransformerLSTMForecaster,
-        scaler,
-        label_to_idx: dict,
-        idx_to_label: dict,
-        device:       str = 'cpu',
-        shap_enabled: bool = True,
+        booster:        xgb.Booster,
+        forecaster:     torch.nn.Module,
+        scaler_a,
+        scaler_b,
+        label_to_idx:   dict,
+        idx_to_label:   dict,
+        mode:           str = 'legacy',
+        device:         str = 'cpu',
+        shap_enabled:   bool = True,
+        xgb_version:    str = 'unknown',
+        forecaster_version: str = 'unknown',
     ):
-        self.booster      = booster
-        self.transformer  = transformer
-        self.scaler       = scaler
-        self.label_to_idx = label_to_idx
-        self.idx_to_label = idx_to_label
-        self.device       = torch.device(device)
-        self.shap_enabled = shap_enabled
+        if mode not in ('legacy', 'spec'):
+            raise ValueError(f"mode must be 'legacy' or 'spec', got {mode!r}")
 
-        # Stateful rolling buffer (12 scaled feature vectors)
-        self._buffer: deque = deque(maxlen=N_TIMESTEPS)
-        self._window_id: int = 0
+        self.booster        = booster
+        self.forecaster     = forecaster
+        self.scaler_a       = scaler_a
+        self.scaler_b       = scaler_b
+        self.label_to_idx   = label_to_idx
+        self.idx_to_label   = idx_to_label
+        self.mode           = mode
+        self.device         = torch.device(device)
+        self.shap_enabled   = shap_enabled
+        self.xgb_version    = xgb_version
+        self.forecaster_version = forecaster_version
 
-        # Lazy SHAP explainer (initialized on first infer call)
+        # Per-device 60-step rolling buffer for Track B
+        self._buffers_b: dict[str, deque] = defaultdict(
+            lambda: deque(maxlen=TRACK_B_LOOK_BACK)
+        )
+
+        # SHAP explainer (lazy)
         self._shap_explainer = None
-        self._shap_pkg_failed = False   # True after first shap-package failure
+        self._shap_pkg_failed = False
+
+        # Drift detection
+        self.drift = _ADWINStub()
 
         # Latency tracking
-        self._latencies_xgb: list = []
-        self._latencies_transformer: list = []
+        self._lat_a: list[float] = []
+        self._lat_b: list[float] = []
 
-        # ── Forecast Exponential Decay (Fix #2) ──────────────────────────────
-        # Smooths the Transformer output so forecasts decay back toward 0
-        # after an attack ends, rather than staying perpetually high.
-        # decay_alpha: weight given to the new raw forecast (0 < alpha <= 1).
-        #   alpha=1.0  → no smoothing (original behavior)
-        #   alpha=0.15 → slow decay; ~20 windows to drop from 1.0 to 0.05
-        self._forecast_alpha: float = 0.15
-        self._ema_forecast: list = [0.0, 0.0, 0.0, 0.0]  # running EMA
+        # Coalescer
+        self.coalescer = PayloadCoalescer()
 
-        self.transformer.eval()
-        logger.info(f"InferenceEngine ready | device={device} | SHAP={shap_enabled}")
+        self.forecaster.eval()
+        logger.info(
+            f"InferenceEngine v2 ready | mode={mode} | device={device} | "
+            f"SHAP={'on' if shap_enabled else 'off'}"
+        )
 
-    # ── Factory ───────────────────────────────────────────────────────────────
+    # ── Factory ──────────────────────────────────────────────────────────────
 
     @classmethod
     def load(
         cls,
-        model_dir:  str = './pad_onap_v3/models',
-        data_dir:   str = './pad_onap_v3/processed',
-        device:     str = 'auto',
+        model_dir:    str = './pad_onap_v3/models',
+        data_dir:     str = './pad_onap_v3/processed',
+        mode:         str = 'legacy',
+        device:       str = 'auto',
         shap_enabled: bool = True,
     ) -> 'InferenceEngine':
-        """
-        Load all model artifacts and return a ready InferenceEngine.
-
-        Args:
-            model_dir:    directory containing xgboost_7class_v2.json and transformer_lstm_v2.pth
-            data_dir:     directory containing scaler.pkl
-            device:       'auto' | 'cuda' | 'cpu'
-            shap_enabled: compute SHAP values per inference (adds ~1-2ms)
-        """
         model_dir = Path(model_dir)
         data_dir  = Path(data_dir)
 
         if device == 'auto':
             device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-        logger.info(f"Loading models from {model_dir} | device={device}")
+        logger.info(f"Loading models from {model_dir} | mode={mode} | device={device}")
 
-        # ── XGBoost — support v2 and v3 filenames ────────────────────────────
+        # ── XGBoost (Track A) ────────────────────────────────────────────────
         xgb_candidates = [
-            model_dir / 'xgboost_v3.json',          # Kaggle notebook output
-            model_dir / 'xgboost_7class_v2.json',   # legacy v2
+            model_dir / 'xgboost_track_a.json',     # spec-mode artefact
+            model_dir / 'xgboost_v3.json',          # legacy v3 artefact
+            model_dir / 'xgboost_7class_v2.json',   # legacy v2 artefact
         ]
         xgb_path = next((p for p in xgb_candidates if p.exists()), None)
         if xgb_path is None:
-            raise FileNotFoundError(f"XGBoost model not found in {model_dir}. "
-                                    f"Expected: {[p.name for p in xgb_candidates]}")
+            raise FileNotFoundError(
+                f"No XGBoost model found in {model_dir} "
+                f"(tried: {[p.name for p in xgb_candidates]})"
+            )
         booster = xgb.Booster()
         booster.load_model(str(xgb_path))
-        logger.info(f"  ✓ XGBoost loaded: {xgb_path}")
+        xgb_version = xgb_path.stem
+        logger.info(f"  XGBoost loaded: {xgb_path.name}")
 
-        # ── Label map — prefer xgb_label_map.json (Kaggle), fallback y_train.npy ──
-        label_to_idx, idx_to_label = {}, {}
+        # ── Label map ────────────────────────────────────────────────────────
         lbl_map_path = model_dir / 'xgb_label_map.json'
-        y_train_path = Path(data_dir) / 'y_train.npy'
-
         if lbl_map_path.exists():
             with open(lbl_map_path) as f:
                 lm = json.load(f)
             label_to_idx = {int(k): int(v) for k, v in lm['label_to_idx'].items()}
             idx_to_label = {int(k): int(v) for k, v in lm['idx_to_label'].items()}
-            logger.info(f"  Label map from xgb_label_map.json: {label_to_idx}")
-        elif y_train_path.exists():
-            y_tr = np.load(str(y_train_path)).astype(int)
-            present = sorted(np.unique(y_tr).tolist())
-            label_to_idx = {lbl: i for i, lbl in enumerate(present)}
-            idx_to_label = {i: lbl for lbl, i in label_to_idx.items()}
-            logger.info(f"  Label map from y_train.npy: {label_to_idx}")
         else:
-            logger.warning("No label map found — using identity fallback")
-            for i in range(6):
-                label_to_idx[i] = i
-                idx_to_label[i] = i
+            # identity over 12 classes
+            label_to_idx = {i: i for i in range(N_CICDDOS_CLASSES)}
+            idx_to_label = {i: i for i in range(N_CICDDOS_CLASSES)}
+            logger.warning("  No xgb_label_map.json — using identity over 12 classes")
 
-        # ── Transformer+LSTM — support v2 and v3 filenames ───────────────────
+        # ── Track B forecaster ───────────────────────────────────────────────
         tf_candidates = [
-            model_dir / 'transformer_v3.pt',          # Kaggle notebook output
-            model_dir / 'transformer_lstm_v2.pth',    # legacy v2
+            model_dir / 'lstm_track_b.pt',          # spec-mode artefact
+            model_dir / 'transformer_v3.pt',        # legacy v3 artefact
+            model_dir / 'transformer_lstm_v2.pth',  # legacy v2 artefact
         ]
-        t_path = next((p for p in tf_candidates if p.exists()), None)
-        if t_path is None:
-            raise FileNotFoundError(f"Transformer model not found in {model_dir}. "
-                                    f"Expected: {[p.name for p in tf_candidates]}")
+        tf_path = next((p for p in tf_candidates if p.exists()), None)
+        if tf_path is None:
+            raise FileNotFoundError(
+                f"No forecaster model found in {model_dir} "
+                f"(tried: {[p.name for p in tf_candidates]})"
+            )
 
-        # HP from metadata if available
+        # Load HP from sidecar if present
         hp = {}
-        for meta_name in ['tf_best_config.json', 'transformer_metrics.json', 'transformer_lstm_metadata.json']:
+        for meta_name in ('tf_best_config.json', 'lstm_track_b_config.json'):
             meta_path = model_dir / meta_name
             if meta_path.exists():
                 with open(meta_path) as f:
-                    t_meta = json.load(f)
-                hp = t_meta.get('best_hp', {})
-                if hp:
-                    logger.info(f"  Transformer HP from {meta_name}: {hp}")
-                    break
+                    meta = json.load(f)
+                hp = meta.get('best_hp', meta)
+                break
 
-        transformer = TransformerLSTMForecaster(
-            input_dim   = N_FEATURES,
-            hidden_dim  = hp.get('hidden_dim',  64),
-            num_heads   = hp.get('num_heads',    4),
-            num_layers  = hp.get('num_layers',   2),
-            lstm_hidden = hp.get('lstm_hidden', 128),
-            lstm_layers = hp.get('lstm_layers',  2),
-            dropout     = 0.0,
+        if mode == 'spec' and tf_path.name.startswith('lstm_track_b'):
+            # Native stacked LSTM (Spec §4.3) — defined locally; Phase 2 will
+            # promote this to its own module.
+            forecaster = _StackedLSTMForecaster(
+                input_dim   = N_TRACK_B_FEATURES,
+                hidden_l1   = hp.get('hidden_l1', 100),
+                hidden_l2   = hp.get('hidden_l2', 100),
+                hidden_l3   = hp.get('hidden_l3', 50),
+                fc_hidden   = hp.get('fc_hidden', 25),
+                n_horizons  = len(HORIZONS_MIN),
+                dropout     = hp.get('dropout', 0.2),
+            )
+        else:
+            # Legacy bridge — re-use Transformer+LSTM (12-step × 17-feature input,
+            # 4-horizon output {30s,60s,90s,120s}).
+            forecaster = TransformerLSTMForecaster(
+                input_dim   = LEGACY_N_FEATURES,
+                hidden_dim  = hp.get('hidden_dim',  64),
+                num_heads   = hp.get('num_heads',    4),
+                num_layers  = hp.get('num_layers',   2),
+                lstm_hidden = hp.get('lstm_hidden', 128),
+                lstm_layers = hp.get('lstm_layers',  2),
+                dropout     = 0.0,
+            )
+
+        state_dict = torch.load(str(tf_path), map_location=device, weights_only=True)
+        try:
+            forecaster.load_state_dict(state_dict)
+        except RuntimeError as e:
+            logger.warning(
+                f"Forecaster state_dict mismatch ({e}); loading with strict=False"
+            )
+            forecaster.load_state_dict(state_dict, strict=False)
+        forecaster = forecaster.to(device).eval()
+        forecaster_version = tf_path.stem
+        logger.info(f"  Forecaster loaded: {tf_path.name}")
+
+        # ── Scalers ──────────────────────────────────────────────────────────
+        scaler_a_path = next(
+            (p for p in (model_dir / 'scaler_track_a.pkl',
+                         model_dir / 'scaler.pkl',
+                         data_dir  / 'scaler.pkl') if p.exists()),
+            None,
         )
-        state_dict = torch.load(str(t_path), map_location=device, weights_only=True)
-        transformer.load_state_dict(state_dict)
-        transformer = transformer.to(device)
-        transformer.eval()
-        logger.info(f"  ✓ Transformer+LSTM loaded: {t_path}")
+        if scaler_a_path is None:
+            raise FileNotFoundError("Track A scaler not found")
+        with open(scaler_a_path, 'rb') as f:
+            scaler_a = pickle.load(f)
+        logger.info(f"  Track A scaler: {scaler_a_path.name}")
 
-        # ── Scaler — check model_dir first (Kaggle saves it there), then data_dir ──
-        scaler_candidates = [model_dir / 'scaler.pkl', Path(data_dir) / 'scaler.pkl']
-        scaler_path = next((p for p in scaler_candidates if p.exists()), None)
-        if scaler_path is None:
-            raise FileNotFoundError(f"scaler.pkl not found in {model_dir} or {data_dir}")
-        with open(scaler_path, 'rb') as f:
-            scaler = pickle.load(f)
-        logger.info(f"  ✓ Scaler loaded: {scaler_path}")
+        scaler_b_path = next(
+            (p for p in (model_dir / 'scaler_track_b_minmax.pkl',
+                         model_dir / 'scaler_track_b.pkl') if p.exists()),
+            None,
+        )
+        if scaler_b_path is not None:
+            with open(scaler_b_path, 'rb') as f:
+                scaler_b = pickle.load(f)
+            logger.info(f"  Track B scaler: {scaler_b_path.name}")
+        else:
+            scaler_b = None
+            logger.warning(
+                "  Track B scaler missing — using identity in legacy mode "
+                "(Track B path will reuse Track A scaler over a 17-dim adapter)"
+            )
 
         engine = cls(
-            booster      = booster,
-            transformer  = transformer,
-            scaler       = scaler,
-            label_to_idx = label_to_idx,
-            idx_to_label = idx_to_label,
-            device       = device,
-            shap_enabled = shap_enabled,
+            booster        = booster,
+            forecaster     = forecaster,
+            scaler_a       = scaler_a,
+            scaler_b       = scaler_b,
+            label_to_idx   = label_to_idx,
+            idx_to_label   = idx_to_label,
+            mode           = mode,
+            device         = device,
+            shap_enabled   = shap_enabled,
+            xgb_version    = xgb_version,
+            forecaster_version = forecaster_version,
         )
         cls._warmup(engine)
         return engine
 
-    # ── Model Warm-up (Fix #3) ────────────────────────────────────────────────
+    # ── Warm-up ──────────────────────────────────────────────────────────────
 
     @classmethod
     def _warmup(cls, engine: 'InferenceEngine') -> None:
-        """
-        Run a few dummy forward passes so PyTorch JIT compiles the CUDA kernels
-        before the live loop starts. This eliminates the ≈1-second P99 spike
-        observed at W50 in the first latency summary.
-        """
-        logger.info("  Running model warm-up (2 dummy passes)...")
-        dummy = np.zeros(N_FEATURES, dtype=np.float32)
+        logger.info("  Running warm-up passes (Track A x2, Track B x2)...")
+        dummy_a = np.zeros(N_TRACK_A_FEATURES, dtype=np.float32)
+        dummy_b = np.zeros(N_TRACK_B_FEATURES, dtype=np.float32)
         for _ in range(2):
-            engine.infer(dummy)
-        # Reset state so warm-up windows don't pollute the live buffer
-        engine._buffer.clear()
-        engine._window_id = 0
-        engine._latencies_xgb.clear()
-        engine._latencies_transformer.clear()
-        engine._ema_forecast = [0.0, 0.0, 0.0, 0.0]
-        logger.info("  Warm-up complete — inference engine ready.")
+            engine.infer_track_a(dummy_a, source_device_id='__warmup__')
+        for _ in range(2):
+            engine.infer_track_b(dummy_b, source_device_id='__warmup__')
+        # Reset state polluted by warm-up
+        engine._buffers_b.clear()
+        engine._lat_a.clear()
+        engine._lat_b.clear()
+        engine.coalescer = PayloadCoalescer()
+        logger.info("  Warm-up complete.")
 
-    # ── Core inference ────────────────────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────────────────────
+    # Track A path — XGBoost classifier
+    # ─────────────────────────────────────────────────────────────────────────
 
-    def infer(self, features_raw: np.ndarray) -> AIOutputPayload:
+    def infer_track_a(
+        self,
+        features_22: np.ndarray,
+        *,
+        source_device_id: str = 'unknown',
+    ) -> TrackADetection:
         """
-        Process one 5-second window and return a complete AIOutputPayload.
+        Run the Track A classifier on a 22-dim flow feature vector.
 
         Args:
-            features_raw: shape (17,) — raw (unscaled) feature vector from Flink
-
-        Returns:
-            AIOutputPayload — ready to serialize and send to S4
+            features_22: shape (22,) — order must match TRACK_A_FEATURES
         """
-        t_total = time.perf_counter()
-        self._window_id += 1
-
-        # 1. Scale
-        x_scaled = self.scaler.transform(
-            features_raw.reshape(1, -1)
-        ).astype(np.float32).flatten()
-
-        # 2. XGBoost → 7-class probs
-        class_probs_7, shap_top5, xgb_ms = self._run_xgboost(x_scaled)
-
-        # 3. Update rolling buffer
-        self._buffer.append(x_scaled)
-
-        # 4. Transformer → 4-horizon forecast
-        raw_forecast_4, tf_ms = self._run_transformer()
-
-        # 4b. Apply EMA decay so forecast recovers after attack ends (Fix #2)
-        alpha = self._forecast_alpha
-        self._ema_forecast = [
-            alpha * raw_f + (1.0 - alpha) * ema_f
-            for raw_f, ema_f in zip(raw_forecast_4, self._ema_forecast)
-        ]
-        forecast_4 = self._ema_forecast
-
-        # 5. Compose payload
-        payload = build_output(
-            window_id    = self._window_id,
-            class_probs  = class_probs_7,
-            forecast     = forecast_4,
-            top_features = shap_top5,
-        )
-
-        total_ms = (time.perf_counter() - t_total) * 1000
-        logger.debug(
-            f"[W{self._window_id:05d}] "
-            f"class={payload.detection.attack_type} "
-            f"conf={payload.detection.confidence:.3f} | "
-            f"P30={forecast_4[0]:.3f} | "
-            f"xgb={xgb_ms:.1f}ms tf={tf_ms:.1f}ms total={total_ms:.1f}ms"
-        )
-        return payload
-
-    # ── Private: XGBoost ──────────────────────────────────────────────────────
-
-    def _run_xgboost(self, x_scaled: np.ndarray):
-        """Returns (class_probs_7, shap_top5_dict, latency_ms)."""
+        if features_22.shape[0] != N_TRACK_A_FEATURES:
+            raise ValueError(
+                f"Track A expects {N_TRACK_A_FEATURES} features, "
+                f"got shape {features_22.shape}"
+            )
         t0 = time.perf_counter()
 
-        dm = xgb.DMatrix(x_scaled.reshape(1, -1))
+        # Adapt to the loaded model's expected feature dim
+        x_in = self._adapt_track_a_input(features_22)
 
-        # Predict probabilities
-        raw = self.booster.predict(dm)          # shape: (1, n_classes) or (n_classes,)
-        n_cls = len(self.label_to_idx)
+        # Scale
+        x_scaled = self.scaler_a.transform(x_in.reshape(1, -1)).astype(np.float32)
+
+        # XGBoost predict
+        dm  = xgb.DMatrix(x_scaled)
+        raw = self.booster.predict(dm)
         if raw.ndim == 1:
-            probs_remapped = raw.reshape(1, n_cls)[0]
-        else:
-            probs_remapped = raw[0]
+            raw = raw.reshape(1, -1)
+        probs_remapped = raw[0]
 
-        # Map back to 7-class space (fill 0 for absent classes)
-        class_probs_7 = np.zeros(7, dtype=np.float32)
-        for remapped_idx, orig_label in self.idx_to_label.items():
-            if orig_label < 7:
-                class_probs_7[orig_label] = probs_remapped[remapped_idx]
+        # Project remapped → canonical 12-class space (Spec §4.6 attack_class_id ∈ [0,11])
+        class_probs_12 = self._remap_to_12class(probs_remapped)
 
-        # SHAP
-        shap_top5 = {}
+        best_id  = int(np.argmax(class_probs_12))
+        best_p   = float(class_probs_12[best_id])
+        attack_p = float(1.0 - class_probs_12[0])    # 1 − P(BENIGN) — Spec §4.2
+        is_attack = best_id != 0
+
+        # SHAP top-K
+        shap_top_names: list[str] = []
+        shap_values:    dict      = {}
         if self.shap_enabled:
-            shap_top5 = self._compute_shap(x_scaled, int(np.argmax(class_probs_7)))
+            shap_top_names, shap_values = self._compute_shap(x_scaled[0], best_id)
 
-        ms = (time.perf_counter() - t0) * 1000
-        self._latencies_xgb.append(ms)
-        return class_probs_7, shap_top5, ms
+        explanation_text = self._build_explanation(
+            attack_type=CICDDOS_CLASSES[best_id],
+            shap_values=shap_values,
+        )
 
-    def _compute_shap(self, x_scaled: np.ndarray, predicted_class: int) -> dict:
+        # Drift hook
+        if self.drift.update(attack_p):
+            logger.warning(
+                f"[Drift] ADWIN stub flagged drift after "
+                f"{self.drift.warnings_emitted} alarms"
+            )
+
+        ms = (time.perf_counter() - t0) * 1000.0
+        self._lat_a.append(ms)
+
+        det = TrackADetection(
+            track             = 'A_XGB',
+            attack_type       = CICDDOS_CLASSES[best_id],
+            attack_class_id   = best_id,
+            confidence        = attack_p,         # P(attack) per Spec §4.2 mapping
+            is_attack         = is_attack,
+            class_probs       = {
+                CICDDOS_CLASSES[i]: float(class_probs_12[i])
+                for i in range(N_CICDDOS_CLASSES)
+            },
+            shap_top_features = shap_top_names,
+            shap_values       = shap_values,
+            explanation_text  = explanation_text,
+            inference_ms      = ms,
+        )
+        return det
+
+    def _adapt_track_a_input(self, features_22: np.ndarray) -> np.ndarray:
         """
-        Compute SHAP top-K for the predicted class.
+        Bridge the 22-dim flow vector to whatever feature dimension the loaded
+        XGBoost expects.
 
-        Priority:
-          1. XGBoost native pred_contribs=True  — no extra package, always works
-          2. shap.TreeExplainer                 — richer API, used as cross-check
-          3. booster.get_score(gain)             — static fallback, no per-sample values
+        spec mode    : returns the 22-dim vector unchanged
+        legacy mode  : maps the 22 CICFlowMeter-style features to the 17-dim
+                       legacy schema by deriving rate-style features that match
+                       the legacy scaler's training distribution.
+
+                       Legacy 17-feature order (training-time):
+                         [pkt_rate, byte_rate,
+                          src_ip_entropy, dst_ip_entropy,
+                          src_port_entropy, dst_port_entropy,
+                          proto_dist_tcp, proto_dist_udp, proto_dist_icmp,
+                          syn_ratio, fin_ratio,
+                          avg_pkt_size, pkt_size_std,
+                          new_flows_rate, flow_duration_mean,
+                          inter_arrival_mean, inter_arrival_std]
+
+                       Bridge rules (best-effort; entropy/ratio fields default
+                       to 0 — they will be reconstructed properly once Phase 1
+                       retrains XGBoost on the native 22-dim schema):
+                         pkt_rate          ← flow_packets_per_sec
+                         byte_rate         ← flow_bytes_per_sec
+                         src/dst_ip_entropy: 0 (not derivable from 22-dim flow set)
+                         src/dst_port_entropy: 0
+                         proto_dist_tcp    ← 1 if protocol==6 else 0
+                         proto_dist_udp    ← 1 if protocol==17 else 0
+                         proto_dist_icmp   ← 1 if protocol==1 else 0
+                         syn_ratio         ← syn_flag_count / total_pkts
+                         fin_ratio         ← 0
+                         avg_pkt_size      ← fwd_packet_length_mean
+                         pkt_size_std      ← 0
+                         new_flows_rate    ← 0
+                         flow_duration_mean← flow_duration
+                         inter_arrival_mean← flow_iat_mean
+                         inter_arrival_std ← flow_iat_std
         """
-        n_feat = len(FEATURE_NAMES)
-        top_k  = min(TOP_K_SHAP, n_feat)
-        remapped_cls = self.label_to_idx.get(predicted_class, 0)
+        if self.mode == 'spec':
+            return features_22.astype(np.float32)
 
-        # ── Method 1: XGBoost native pred_contribs ────────────────────────────
+        f = {name: float(features_22[i]) for i, name in enumerate(TRACK_A_FEATURES)}
+        total_pkts = f['total_fwd_packets'] + f['total_bwd_packets']
+        proto      = int(f['protocol'])
+
+        legacy_17 = np.array([
+            f['flow_packets_per_sec'],
+            f['flow_bytes_per_sec'],
+            0.0, 0.0,                                   # src/dst_ip_entropy
+            0.0, 0.0,                                   # src/dst_port_entropy
+            1.0 if proto == 6  else 0.0,
+            1.0 if proto == 17 else 0.0,
+            1.0 if proto == 1  else 0.0,
+            (f['syn_flag_count'] / total_pkts) if total_pkts > 0 else 0.0,
+            0.0,                                        # fin_ratio
+            f['fwd_packet_length_mean'],
+            0.0,                                        # pkt_size_std
+            0.0,                                        # new_flows_rate
+            f['flow_duration'],
+            f['flow_iat_mean'],
+            f['flow_iat_std'],
+        ], dtype=np.float32)
+        return legacy_17
+
+    def _remap_to_12class(self, probs_remapped: np.ndarray) -> np.ndarray:
+        """
+        Map model output to the canonical 12-class CICDDoS taxonomy.
+
+        spec mode    : assumed 12-way already (or remapped via xgb_label_map.json)
+        legacy mode  : redistribute the 7 legacy class probabilities into the
+                       12 CICDDoS slots so downstream consumers see a well-formed
+                       12-vector.  Mapping (legacy → canonical):
+                         Normal        → BENIGN          (0)
+                         UDP_Flood     → DrDoS_UDP       (8)
+                         SYN_Flood     → Syn             (9)
+                         HTTP_Flood    → WebDDoS         (11)
+                         ICMP_Flood    → spread across DrDoS_DNS..SNMP (1-6) — n/a; → 0
+                         Amplification → spread evenly across DrDoS_DNS..SSDP (1-7)
+                         Slow_rate     → WebDDoS         (11)
+                       This is provisional: Phase 1 retrain replaces it cleanly.
+        """
+        out = np.zeros(N_CICDDOS_CLASSES, dtype=np.float32)
+
+        if self.mode == 'spec':
+            n = len(probs_remapped)
+            for remapped_idx, orig in self.idx_to_label.items():
+                if 0 <= int(orig) < N_CICDDOS_CLASSES and remapped_idx < n:
+                    out[int(orig)] = float(probs_remapped[remapped_idx])
+            s = out.sum()
+            return out / s if s > 0 else out
+
+        # Legacy 7-class → 12-class redistribution (provisional bridge)
+        # Reorder probs into the canonical 7-tuple [Normal, UDP, SYN, HTTP, ICMP, Amp, Slow]
+        legacy_7 = np.zeros(7, dtype=np.float32)
+        for remapped_idx, orig in self.idx_to_label.items():
+            if 0 <= int(orig) < 7 and remapped_idx < len(probs_remapped):
+                legacy_7[int(orig)] = float(probs_remapped[remapped_idx])
+
+        # Distribute amplification across reflection-DDoS classes (1..7)
+        amp_share = legacy_7[5] / 7.0
+        out[0]  = legacy_7[0]                        # BENIGN
+        out[1]  = amp_share                          # DrDoS_DNS
+        out[2]  = amp_share                          # DrDoS_LDAP
+        out[3]  = amp_share                          # DrDoS_MSSQL
+        out[4]  = amp_share                          # DrDoS_NetBIOS
+        out[5]  = amp_share                          # DrDoS_NTP
+        out[6]  = amp_share                          # DrDoS_SNMP
+        out[7]  = amp_share                          # DrDoS_SSDP
+        out[8]  = legacy_7[1]                        # DrDoS_UDP    ← UDP_Flood
+        out[9]  = legacy_7[2]                        # Syn          ← SYN_Flood
+        out[10] = legacy_7[4]                        # UDP-lag      ← ICMP_Flood (proxy)
+        out[11] = legacy_7[3] + legacy_7[6]          # WebDDoS      ← HTTP_Flood + Slow_rate
+
+        s = out.sum()
+        return out / s if s > 0 else out
+
+    def _compute_shap(self, x_scaled: np.ndarray, predicted_class_id: int):
+        """
+        Returns (top_K_feature_names, {feature_name: signed_shap_value}).
+
+        Strategy chain:
+          1. XGBoost native pred_contribs=True (fastest, no extra deps)
+          2. shap.TreeExplainer  (used as cross-check / fallback)
+          3. booster.get_score(gain) (static fallback — no per-sample values)
+
+        Feature names are taken from the model's input space (22-dim spec, or
+        17-dim legacy bridge).
+        """
+        if self.mode == 'spec':
+            feature_names = TRACK_A_FEATURES
+            n_feat = N_TRACK_A_FEATURES
+        else:
+            feature_names = [
+                'pkt_rate', 'byte_rate',
+                'src_ip_entropy', 'dst_ip_entropy',
+                'src_port_entropy', 'dst_port_entropy',
+                'proto_dist_tcp', 'proto_dist_udp', 'proto_dist_icmp',
+                'syn_ratio', 'fin_ratio',
+                'avg_pkt_size', 'pkt_size_std',
+                'new_flows_rate', 'flow_duration_mean',
+                'inter_arrival_mean', 'inter_arrival_std',
+            ]
+            n_feat = len(feature_names)
+
+        top_k = min(TOP_K_SHAP, n_feat)
+        remapped_cls = self.label_to_idx.get(predicted_class_id, 0)
+
+        # ── Method 1: native pred_contribs ───────────────────────────────────
         try:
             dm       = xgb.DMatrix(x_scaled.reshape(1, -1))
-            contribs = self.booster.predict(dm, pred_contribs=True)
-            # XGBoost 2.x multi-class returns (1, n_classes, n_feat+1)
-            # or (1, n_feat+1) for binary. Flatten and parse defensively.
-            arr = np.array(contribs)
-            if arr.ndim == 3:
-                # (1, n_classes, n_feat+1) — take the predicted class row
-                n_cls = arr.shape[1]
-                rc    = min(remapped_cls, n_cls - 1)
-                shap_vals = np.abs(arr[0, rc, :n_feat])
-            elif arr.ndim == 2:
-                flat = arr.flatten()
-                n_cls = len(self.label_to_idx)
-                stride = n_feat + 1
-                if len(flat) >= n_cls * stride:
-                    # (1, n_classes * (n_feat+1)) layout
-                    rc = min(remapped_cls, n_cls - 1)
-                    shap_vals = np.abs(flat[rc * stride: rc * stride + n_feat])
-                else:
-                    shap_vals = np.abs(flat[:n_feat])
-            else:
-                shap_vals = np.abs(arr.flatten()[:n_feat])
-
-            if len(shap_vals) >= top_k and shap_vals.sum() > 0:
-                top_idx = np.argsort(shap_vals)[-top_k:][::-1]
-                return {FEATURE_NAMES[i]: float(shap_vals[i]) for i in top_idx}
+            contribs = np.array(self.booster.predict(dm, pred_contribs=True))
+            signed   = self._extract_contribs(contribs, n_feat, remapped_cls)
+            if signed is not None and np.abs(signed).sum() > 0:
+                return self._top_signed(signed, feature_names, top_k)
         except Exception as e:
-            logger.debug(f"pred_contribs failed: {e} — trying shap package")
+            logger.debug(f"pred_contribs failed: {e}")
 
-        # ── Method 2: shap.TreeExplainer (skip if already known-failed) ──────
+        # ── Method 2: shap.TreeExplainer ─────────────────────────────────────
         if not self._shap_pkg_failed:
             try:
                 if self._shap_explainer is None:
                     import shap as _shap
                     self._shap_explainer = _shap.TreeExplainer(self.booster)
-
-                x_np     = x_scaled.reshape(1, -1)
-                shap_out = self._shap_explainer(x_np)
-                sv       = np.array(shap_out.values)
-
+                sv = np.array(self._shap_explainer(x_scaled.reshape(1, -1)).values)
                 if sv.ndim == 3:
                     rc = min(remapped_cls, sv.shape[2] - 1)
-                    shap_vals = np.abs(sv[0, :n_feat, rc])
+                    signed = sv[0, :n_feat, rc]
                 elif sv.ndim == 2:
-                    shap_vals = np.abs(sv[0, :n_feat])
+                    signed = sv[0, :n_feat]
                 else:
-                    shap_vals = np.abs(sv.flatten()[:n_feat])
-
-                if shap_vals.sum() > 0:
-                    top_idx = np.argsort(shap_vals)[-top_k:][::-1]
-                    return {FEATURE_NAMES[i]: float(shap_vals[i]) for i in top_idx}
+                    signed = sv.flatten()[:n_feat]
+                if np.abs(signed).sum() > 0:
+                    return self._top_signed(signed, feature_names, top_k)
             except Exception as e:
-                logger.warning(f"shap.TreeExplainer failed: {e} — using get_score fallback")
+                logger.warning(f"shap.TreeExplainer failed: {e}")
                 self._shap_pkg_failed = True
 
-        # ── Method 3: static feature importance (get_score) ──────────────────
+        # ── Method 3: gain-based static fallback ─────────────────────────────
         try:
             scores = self.booster.get_score(importance_type='gain')
             if scores:
                 top = sorted(scores.items(), key=lambda kv: -kv[1])[:top_k]
                 total = sum(v for _, v in top) or 1.0
-                return {k: round(v / total, 6) for k, v in top}
+                names_out = [k for k, _ in top]
+                vals_out  = {k: round(v / total, 6) for k, v in top}
+                return names_out, vals_out
         except Exception:
             pass
 
-        return {}
+        return [], {}
 
-    # ── Private: Transformer ──────────────────────────────────────────────────
+    @staticmethod
+    def _extract_contribs(arr: np.ndarray, n_feat: int, remapped_cls: int):
+        """Pull the per-feature contribution vector for `remapped_cls`."""
+        if arr.ndim == 3:
+            # (1, n_classes, n_feat+1)
+            n_cls = arr.shape[1]
+            rc    = min(remapped_cls, n_cls - 1)
+            return arr[0, rc, :n_feat]
+        if arr.ndim == 2:
+            flat = arr.flatten()
+            stride = n_feat + 1
+            n_cls = max(1, len(flat) // stride)
+            if n_cls > 1:
+                rc = min(remapped_cls, n_cls - 1)
+                return flat[rc * stride: rc * stride + n_feat]
+            return flat[:n_feat]
+        return arr.flatten()[:n_feat]
 
-    def _run_transformer(self):
-        """Returns (forecast_4, latency_ms). Uses zeros if buffer not full yet."""
+    @staticmethod
+    def _top_signed(signed: np.ndarray, feature_names: list[str], top_k: int):
+        order = np.argsort(np.abs(signed))[-top_k:][::-1]
+        names = [feature_names[i] for i in order]
+        vals  = {feature_names[i]: float(signed[i]) for i in order}
+        return names, vals
+
+    @staticmethod
+    def _build_explanation(*, attack_type: str, shap_values: dict) -> str:
+        """Spec §4.5 — auto-generated explanation_text."""
+        if not shap_values:
+            return f"Predicted {attack_type}; no SHAP attribution available."
+        parts = []
+        for name, val in list(shap_values.items())[:3]:
+            direction = '+' if val >= 0 else '-'
+            parts.append(f"{direction}{abs(val):.3f} {name}")
+        joined = " and ".join(parts)
+        return f"Predicted {attack_type} because {joined}"
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Track B path — Multi-horizon forecaster
+    # ─────────────────────────────────────────────────────────────────────────
+
+    def infer_track_b(
+        self,
+        features_6: np.ndarray,
+        *,
+        source_device_id: str = 'unknown',
+    ) -> TrackBForecast:
+        """
+        Run Track B forecaster after pushing the 6-dim aggregate vector into
+        the per-device 60-step rolling buffer.
+        """
+        if features_6.shape[0] != N_TRACK_B_FEATURES:
+            raise ValueError(
+                f"Track B expects {N_TRACK_B_FEATURES} features, "
+                f"got shape {features_6.shape}"
+            )
         t0 = time.perf_counter()
 
-        if len(self._buffer) < N_TIMESTEPS:
-            # Buffer not full — return neutral forecast
-            ms = (time.perf_counter() - t0) * 1000
-            self._latencies_transformer.append(ms)
-            return [0.0, 0.0, 0.0, 0.0], ms
+        # Scale (Min-Max if available; else identity in legacy mode)
+        if self.scaler_b is not None:
+            x_scaled = self.scaler_b.transform(features_6.reshape(1, -1)).flatten()
+        else:
+            x_scaled = features_6.astype(np.float32)
 
-        # Stack buffer → (1, 12, 17)
-        seq = np.stack(list(self._buffer), axis=0)   # (12, 17)
-        x_t = torch.tensor(seq, dtype=torch.float32).unsqueeze(0).to(self.device)
+        # Push to per-device buffer
+        buf = self._buffers_b[source_device_id]
+        buf.append(x_scaled.astype(np.float32))
 
+        # Run forecaster
+        p1, p5, p15 = self._forecast_horizons(buf)
+
+        # Trigger logic — first horizon (longest first) crossing its threshold
+        triggered_horizon: Optional[int] = None
+        if p15 >= HORIZON_THRESHOLDS[15]:
+            triggered_horizon = 15
+        if p5 >= HORIZON_THRESHOLDS[5]:
+            triggered_horizon = 5
+        if p1 >= HORIZON_THRESHOLDS[1]:
+            triggered_horizon = 1
+
+        pre_position = (triggered_horizon is not None and triggered_horizon >= 5)
+
+        # Permutation-importance (cheap variant — single-shuffle per variable)
+        perm_imp = self._perm_importance(buf) if len(buf) == TRACK_B_LOOK_BACK else {}
+        justification = self._build_forecast_justification(p1, p5, p15, perm_imp)
+
+        ms = (time.perf_counter() - t0) * 1000.0
+        self._lat_b.append(ms)
+
+        return TrackBForecast(
+            track                  = 'B_LSTM',
+            p_attack_1min          = float(p1),
+            p_attack_5min          = float(p5),
+            p_attack_15min         = float(p15),
+            pre_position_recommended = pre_position,
+            triggered_horizon      = triggered_horizon,
+            perm_importance        = perm_imp,
+            forecast_justification = justification,
+            inference_ms           = ms,
+        )
+
+    def _forecast_horizons(self, buf: deque) -> tuple[float, float, float]:
+        """
+        Run the loaded forecaster and return (P(t+1min), P(t+5min), P(t+15min)).
+
+        spec mode    : 60-step × 6-dim → 3-head sigmoid (direct)
+        legacy mode  : the on-disk model is Transformer+LSTM with input
+                       (12, 17) and 4-horizon output (30s/60s/90s/120s).
+                       We adapt by:
+                         (1) reusing the most-recent 12 buffer slots and
+                             zero-padding 6→17 features (channels 6..16 = 0)
+                         (2) projecting the 4 horizon heads to {1,5,15} via:
+                                P1  ← p120s   (longest near-term head)
+                                P5  ← p120s · 0.85  (linear decay extrapolation)
+                                P15 ← p120s · 0.50
+                       This is a transitional bridge; Phase 2 replaces it.
+        """
+        if isinstance(self.forecaster, TransformerLSTMForecaster) or self.mode == 'legacy':
+            return self._forecast_legacy(buf)
+        return self._forecast_spec(buf)
+
+    def _forecast_spec(self, buf: deque) -> tuple[float, float, float]:
+        if len(buf) < TRACK_B_LOOK_BACK:
+            return 0.0, 0.0, 0.0
+        seq = np.stack(list(buf), axis=0)            # (60, 6)
+        x   = torch.tensor(seq, dtype=torch.float32).unsqueeze(0).to(self.device)
         with torch.no_grad():
-            logits = self.transformer(x_t)            # (1, 4)
+            logits = self.forecaster(x)               # (1, 3)
             probs  = torch.sigmoid(logits)[0].cpu().numpy()
+        return float(probs[0]), float(probs[1]), float(probs[2])
 
-        forecast_4 = [float(p) for p in probs]
-        ms = (time.perf_counter() - t0) * 1000
-        self._latencies_transformer.append(ms)
-        return forecast_4, ms
+    def _forecast_legacy(self, buf: deque) -> tuple[float, float, float]:
+        if len(buf) < LEGACY_N_TIMESTEPS:
+            return 0.0, 0.0, 0.0
+        recent = list(buf)[-LEGACY_N_TIMESTEPS:]      # last 12 timesteps
+        seq6   = np.stack(recent, axis=0)             # (12, 6)
+        # Zero-pad 6 → 17 features for legacy model compatibility
+        seq17  = np.zeros((LEGACY_N_TIMESTEPS, LEGACY_N_FEATURES), dtype=np.float32)
+        seq17[:, :N_TRACK_B_FEATURES] = seq6
+        x = torch.tensor(seq17, dtype=torch.float32).unsqueeze(0).to(self.device)
+        with torch.no_grad():
+            logits = self.forecaster(x)               # (1, 4) — legacy 4-horizon
+            probs  = torch.sigmoid(logits)[0].cpu().numpy()
+        # Project 4 legacy horizons (30s/60s/90s/120s) → spec horizons (1/5/15 min)
+        p_120 = float(probs[3])
+        p1    = p_120
+        p5    = p_120 * 0.85
+        p15   = p_120 * 0.50
+        return p1, p5, p15
 
-    # ── Utilities ─────────────────────────────────────────────────────────────
+    def _perm_importance(self, buf: deque) -> dict:
+        """
+        One-shuffle-per-variable permutation importance over the current buffer.
+        Cost: 6 extra forward passes (≈ negligible vs. inference).
+        """
+        if len(buf) < min(TRACK_B_LOOK_BACK, LEGACY_N_TIMESTEPS):
+            return {}
 
-    def reset_buffer(self):
-        """Clear rolling buffer (call between independent traffic streams)."""
-        self._buffer.clear()
+        baseline = self._forecast_horizons(buf)
+        baseline_score = baseline[0] + baseline[1] + baseline[2]
+
+        out: dict = {}
+        rng = np.random.default_rng(seed=42)
+        for i, var_name in enumerate(TRACK_B_FEATURES):
+            shuffled = list(buf)
+            col = np.array([row[i] for row in shuffled], dtype=np.float32)
+            rng.shuffle(col)
+            for k in range(len(shuffled)):
+                row = shuffled[k].copy()
+                row[i] = col[k]
+                shuffled[k] = row
+            shuffled_buf = deque(shuffled, maxlen=buf.maxlen)
+            p1, p5, p15  = self._forecast_horizons(shuffled_buf)
+            out[var_name] = float(abs(baseline_score - (p1 + p5 + p15)))
+
+        # Normalize so values sum to 1 (relative contribution)
+        s = sum(out.values()) or 1.0
+        return {k: round(v / s, 6) for k, v in out.items()}
+
+    @staticmethod
+    def _build_forecast_justification(p1, p5, p15, perm_imp: dict) -> str:
+        if not perm_imp:
+            return (f"Forecast P(t+1)={p1:.3f}, P(t+5)={p5:.3f}, P(t+15)={p15:.3f}; "
+                    f"insufficient history for permutation importance.")
+        top = sorted(perm_imp.items(), key=lambda kv: -kv[1])[:3]
+        var_text = ", ".join(f"{n} ({v:.2f})" for n, v in top)
+        return (f"Forecast P(t+1)={p1:.3f}, P(t+5)={p5:.3f}, P(t+15)={p15:.3f}; "
+                f"top drivers: {var_text}")
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Diagnostics
+    # ─────────────────────────────────────────────────────────────────────────
 
     def latency_summary(self) -> dict:
-        """Return P50/P95/P99 latency stats (ms)."""
-        def pcts(arr):
-            if not arr:
-                return {'p50': 0, 'p95': 0, 'p99': 0}
-            a = np.array(arr)
+        def pct(a):
+            if not a:
+                return {'p50': 0.0, 'p95': 0.0, 'p99': 0.0}
+            arr = np.array(a)
             return {
-                'p50': float(np.percentile(a, 50)),
-                'p95': float(np.percentile(a, 95)),
-                'p99': float(np.percentile(a, 99)),
+                'p50': float(np.percentile(arr, 50)),
+                'p95': float(np.percentile(arr, 95)),
+                'p99': float(np.percentile(arr, 99)),
             }
         return {
-            'xgboost_ms':     pcts(self._latencies_xgb),
-            'transformer_ms': pcts(self._latencies_transformer),
-            'n_inferences':   len(self._latencies_xgb),
+            'track_a_ms': pct(self._lat_a),
+            'track_b_ms': pct(self._lat_b),
+            'n_a': len(self._lat_a),
+            'n_b': len(self._lat_b),
         }
 
-    @property
-    def buffer_fill(self) -> int:
-        """Current number of timesteps in rolling buffer (0–12)."""
-        return len(self._buffer)
+    def reset_buffers(self):
+        self._buffers_b.clear()
 
 
-# ── Standalone replay runner ───────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
+# Spec-mode native forecaster (Spec §4.3 stacked LSTM)
+# Lives here for now; Phase 2 promotes it to its own module.
+# ─────────────────────────────────────────────────────────────────────────────
 
-def run_replay(
-    model_dir:  str = './pad_onap_v3/models',
-    data_dir:   str = './pad_onap_v3/processed',
-    n_samples:  int = 500,
-    device:     str = 'auto',
-    shap_enabled: bool = True,
-    out_path:   str = './pad_onap_v3/models/inference_replay_results.json',
+class _StackedLSTMForecaster(torch.nn.Module):
+    """
+    Stacked Multivariate LSTM Multi-Horizon Forecaster (Spec §4.3).
+
+    Input  : (batch, 60, 6)
+    Output : (batch, 3) raw logits → sigmoid at inference
+    """
+    def __init__(self, input_dim=6, hidden_l1=100, hidden_l2=100,
+                 hidden_l3=50, fc_hidden=25, n_horizons=3, dropout=0.2):
+        super().__init__()
+        self.lstm1 = torch.nn.LSTM(input_dim, hidden_l1,  batch_first=True)
+        self.drop1 = torch.nn.Dropout(dropout)
+        self.lstm2 = torch.nn.LSTM(hidden_l1, hidden_l2,  batch_first=True)
+        self.drop2 = torch.nn.Dropout(dropout)
+        self.lstm3 = torch.nn.LSTM(hidden_l2, hidden_l3,  batch_first=True)
+        self.drop3 = torch.nn.Dropout(dropout)
+        self.fc    = torch.nn.Sequential(
+            torch.nn.Linear(hidden_l3, fc_hidden),
+            torch.nn.ReLU(),
+            torch.nn.Linear(fc_hidden, n_horizons),
+        )
+
+    def forward(self, x):
+        h, _ = self.lstm1(x); h = torch.tanh(h); h = self.drop1(h)
+        h, _ = self.lstm2(h); h = torch.tanh(h); h = self.drop2(h)
+        h, _ = self.lstm3(h); h = torch.tanh(h); h = self.drop3(h)
+        h_last = h[:, -1, :]
+        return self.fc(h_last)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Kafka runner — subscribes to both feature topics and publishes ai.detections
+# ─────────────────────────────────────────────────────────────────────────────
+
+KAFKA_TOPIC_FLOW = 'telemetry.features.flow'
+KAFKA_TOPIC_TS   = 'telemetry.features.timeseries'
+KAFKA_TOPIC_OUT  = 'ai.detections'
+
+# Legacy topic names (kept subscribed for backward compat with old simulators)
+KAFKA_TOPIC_FLOW_LEGACY = 'pad.telemetry.features'
+KAFKA_TOPIC_OUT_LEGACY  = 'pad.ai.detections'
+
+
+def run_kafka(
+    *,
+    broker:        str = 'localhost:9092',
+    model_dir:     str = './pad_onap_v3/models',
+    data_dir:      str = './pad_onap_v3/processed',
+    mode:          str = 'legacy',
+    shap_enabled:  bool = True,
+    group_id:      str = 'pad-inference-engine',
+    out_path:      Optional[str] = None,
 ):
     """
-    Replay the test set through the inference layer and collect metrics.
-
-    Args:
-        n_samples:  max windows to replay (None = all)
-        out_path:   path to save JSON results summary
+    Subscribe to telemetry.features.flow + telemetry.features.timeseries,
+    run dual-track inference, and publish coalesced UnifiedAIOutput payloads to
+    `ai.detections`.
     """
-    import json
-    from sklearn.metrics import accuracy_score, f1_score, classification_report
+    from kafka import KafkaConsumer, KafkaProducer
 
-    logger.info("=" * 60)
-    logger.info("S3-AI INFERENCE LAYER — REPLAY TEST")
-    logger.info("=" * 60)
-
-    # Load engine
     engine = InferenceEngine.load(
         model_dir    = model_dir,
         data_dir     = data_dir,
-        device       = device,
+        mode         = mode,
         shap_enabled = shap_enabled,
     )
 
-    # Load test data (unscaled — engine will scale internally)
-    data_dir = Path(data_dir)
-    scaler   = engine.scaler
+    consumer = KafkaConsumer(
+        KAFKA_TOPIC_FLOW, KAFKA_TOPIC_TS, KAFKA_TOPIC_FLOW_LEGACY,
+        bootstrap_servers=[broker],
+        group_id=group_id,
+        auto_offset_reset='latest',
+        enable_auto_commit=True,
+        value_deserializer=lambda v: json.loads(v.decode('utf-8')),
+        consumer_timeout_ms=300,
+    )
+    producer = KafkaProducer(
+        bootstrap_servers=[broker],
+        key_serializer=lambda k: k.encode('utf-8') if isinstance(k, str) else k,
+        value_serializer=lambda v: json.dumps(v).encode('utf-8'),
+        acks=1, linger_ms=20, retries=3,
+    )
 
-    X_test = np.load(data_dir / 'X_test.npy').astype(np.float32)
-    y_test = np.load(data_dir / 'y_test.npy').astype(int)
+    fout = open(out_path, 'a') if out_path else None
+    logger.info(f"Inference Kafka runner online | publishing to {KAFKA_TOPIC_OUT}")
 
-    # Inverse-transform to get raw features
-    X_raw = scaler.inverse_transform(X_test).astype(np.float32)
+    try:
+        while True:
+            try:
+                for msg in consumer:
+                    payload = msg.value or {}
+                    feats   = payload.get('features') or {}
+                    src_dev = payload.get('source_device_id') or 'unknown'
+                    src_ip  = payload.get('source_ip_prefix')
+                    tgt_ip  = payload.get('target_ip_prefix')
+                    tenant  = payload.get('tenant_id')
+                    track   = payload.get('track', '').upper()
 
-    if n_samples is not None:
-        X_raw = X_raw[:n_samples]
-        y_test = y_test[:n_samples]
+                    if msg.topic in (KAFKA_TOPIC_FLOW, KAFKA_TOPIC_FLOW_LEGACY) or track == 'A':
+                        # Track A — 22-dim flow features
+                        vec = _vector_from_dict(feats, TRACK_A_FEATURES)
+                        det = engine.infer_track_a(vec, source_device_id=src_dev)
+                        unified = engine.coalescer.add_track_a(
+                            det,
+                            source_ip_prefix=src_ip,
+                            target_ip_prefix=tgt_ip,
+                            tenant_id=tenant,
+                        )
+                    elif msg.topic == KAFKA_TOPIC_TS or track == 'B':
+                        # Track B — 6-dim aggregated features
+                        vec = _vector_from_dict(feats, TRACK_B_FEATURES)
+                        fc  = engine.infer_track_b(vec, source_device_id=src_dev)
+                        unified = engine.coalescer.add_track_b(
+                            fc,
+                            source_ip_prefix=src_ip,
+                            target_ip_prefix=tgt_ip,
+                            tenant_id=tenant,
+                        )
+                    else:
+                        continue
 
-    logger.info(f"Replaying {len(X_raw):,} windows...")
+                    if unified is not None:
+                        _publish(producer, unified, fout)
+            except StopIteration:
+                pass
 
-    y_pred           = []
-    proactive_count  = 0
-    tier_counts      = {0: 0, 1: 0, 2: 0, 3: 0, 4: 0}
-    total_latency_ms = []
-    sample_payloads  = []
-
-    t_start = time.perf_counter()
-
-    for i, x_raw in enumerate(X_raw):
-        t0      = time.perf_counter()
-        payload = engine.infer(x_raw)
-        ms      = (time.perf_counter() - t0) * 1000
-        total_latency_ms.append(ms)
-
-        y_pred.append(payload.detection.attack_class)
-
-        if payload.proactive_trigger.triggered:
-            proactive_count += 1
-
-        # Tier assignment (simplified: based on confidence + proactive)
-        conf = payload.detection.confidence
-        p30  = payload.forecast.p_attack_30s
-        if payload.detection.attack_class == 0:
-            tier = 0
-        elif p30 > 0.90 and conf > 0.90:
-            tier = 3
-        elif p30 > 0.70 or conf > 0.80:
-            tier = 2
-        elif conf > 0.50:
-            tier = 1
-        else:
-            tier = 0
-        tier_counts[tier] += 1
-
-        # Save first 3 payloads as examples
-        if i < 3:
-            sample_payloads.append(payload_to_dict(payload))
-
-        if (i + 1) % 100 == 0:
-            elapsed = time.perf_counter() - t_start
-            logger.info(
-                f"  [{i+1:4d}/{len(X_raw)}] "
-                f"P99={float(np.percentile(total_latency_ms, 99)):.1f}ms "
-                f"elapsed={elapsed:.1f}s"
-            )
-
-    # ── Metrics ───────────────────────────────────────────────────────────────
-    present_classes = sorted(np.unique(np.concatenate([y_test, y_pred])))
-    target_names    = [CLASS_NAMES[c] for c in present_classes]
-
-    acc      = float(accuracy_score(y_test, y_pred))
-    macro_f1 = float(f1_score(y_test, y_pred, average='macro', zero_division=0))
-    lat      = engine.latency_summary()
-    lat_arr  = np.array(total_latency_ms)
-
-    logger.info("\n" + "=" * 60)
-    logger.info("REPLAY RESULTS")
-    logger.info("=" * 60)
-    logger.info(f"Accuracy  : {acc:.4f}")
-    logger.info(f"Macro F1  : {macro_f1:.4f}")
-    logger.info(f"Proactive triggers: {proactive_count}/{len(X_raw)} "
-                f"({proactive_count/len(X_raw)*100:.1f}%)")
-    logger.info(f"\nTier distribution:")
-    for t, cnt in tier_counts.items():
-        logger.info(f"  T{t}: {cnt:5d} ({cnt/len(X_raw)*100:.1f}%)")
-    logger.info(f"\nEnd-to-end latency (ms):")
-    logger.info(f"  P50={np.percentile(lat_arr,50):.2f}  "
-                f"P95={np.percentile(lat_arr,95):.2f}  "
-                f"P99={np.percentile(lat_arr,99):.2f}")
-    logger.info(f"\nXGBoost latency  : {lat['xgboost_ms']}")
-    logger.info(f"Transformer latency: {lat['transformer_ms']}")
-
-    logger.info("\n" + classification_report(
-        y_test, y_pred,
-        labels=present_classes,
-        target_names=target_names,
-        digits=4, zero_division=0,
-    ))
-
-    # ── Save results ──────────────────────────────────────────────────────────
-    results = {
-        'n_samples':      len(X_raw),
-        'accuracy':       acc,
-        'macro_f1':       macro_f1,
-        'proactive_rate': proactive_count / len(X_raw),
-        'tier_counts':    tier_counts,
-        'latency_ms': {
-            'p50': float(np.percentile(lat_arr, 50)),
-            'p95': float(np.percentile(lat_arr, 95)),
-            'p99': float(np.percentile(lat_arr, 99)),
-        },
-        'xgboost_latency_ms':     lat['xgboost_ms'],
-        'transformer_latency_ms': lat['transformer_ms'],
-        'sample_payloads':        sample_payloads,
-    }
-
-    out_path = Path(out_path)
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(out_path, 'w') as f:
-        json.dump(results, f, indent=2)
-    logger.info(f"\n💾 Results saved: {out_path}")
-
-    return results
+            # Force-flush stale buckets (ensures Track-A-only or Track-B-only
+            # events still reach M3 within COALESCER_WINDOW_S)
+            for stale in engine.coalescer.flush_stale():
+                _publish(producer, stale, fout)
+    finally:
+        try:
+            producer.flush(timeout=5); producer.close()
+        except Exception:
+            pass
+        try:
+            consumer.close()
+        except Exception:
+            pass
+        if fout:
+            fout.close()
 
 
-# ── Entry point ───────────────────────────────────────────────────────────────
+def _vector_from_dict(feats: dict, names: list[str]) -> np.ndarray:
+    return np.array([float(feats.get(n, 0.0)) for n in names], dtype=np.float32)
+
+
+def _publish(producer, unified: UnifiedAIOutput, fout) -> None:
+    body = _to_dict(unified)
+    key  = unified.target_ip_prefix or 'unknown'
+    try:
+        producer.send(KAFKA_TOPIC_OUT,        key=key, value=body)
+        producer.send(KAFKA_TOPIC_OUT_LEGACY, key=key, value=body)
+        producer.flush(timeout=2)
+    except Exception as e:
+        logger.error(f"publish to {KAFKA_TOPIC_OUT} failed: {e}")
+    if fout is not None:
+        fout.write(json.dumps(body) + '\n'); fout.flush()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Entry point
+# ─────────────────────────────────────────────────────────────────────────────
 
 if __name__ == '__main__':
     import argparse
-    parser = argparse.ArgumentParser(description='S3-AI Inference Layer Replay')
-    parser.add_argument('--model-dir',  default='./pad_onap_v3/models')
-    parser.add_argument('--data-dir',   default='./pad_onap_v3/processed')
-    parser.add_argument('--n-samples',  type=int, default=500)
-    parser.add_argument('--device',     default='auto')
-    parser.add_argument('--no-shap',    action='store_true')
-    parser.add_argument('--out',        default='./pad_onap_v3/models/inference_replay_results.json')
+    parser = argparse.ArgumentParser(description='M2 Inference Engine v2')
+    parser.add_argument('--broker',      default='localhost:9092')
+    parser.add_argument('--model-dir',   default='./pad_onap_v3/models')
+    parser.add_argument('--data-dir',    default='./pad_onap_v3/processed')
+    parser.add_argument('--mode',        choices=('legacy', 'spec'), default='legacy')
+    parser.add_argument('--no-shap',     action='store_true')
+    parser.add_argument('--group-id',    default='pad-inference-engine')
+    parser.add_argument('--out',         default=None,
+                        help='Optional JSONL path to mirror published payloads')
     args = parser.parse_args()
 
-    run_replay(
+    run_kafka(
+        broker       = args.broker,
         model_dir    = args.model_dir,
         data_dir     = args.data_dir,
-        n_samples    = args.n_samples,
-        device       = args.device,
+        mode         = args.mode,
         shap_enabled = not args.no_shap,
+        group_id     = args.group_id,
         out_path     = args.out,
     )

@@ -1,281 +1,579 @@
 """
-M2 — AI Output Schema & Proactive Trigger (Spec-aligned §4.5 / §4.6)
+M2 — AI Output Schema (Spec §4.6 — schema 3.0)
+==============================================
 
-Spec:
-  - Detection payload: attack_type (7-class), confidence, top-5 SHAP features
-  - Forecast payload: P(attack) at t+30s, t+60s, t+90s, t+120s
-  - Proactive trigger: if P(t+30s) > 0.50 → issue Tier 2 pre-positioning signal
-  - Output: JSON over DMaaP (simulated as local JSON file / REST stub)
+Canonical JSON payload for the `ai.detections` topic, consumed by ONAP DCAE.
+
+Shape per Spec §4.6:
+{
+  "event_id":           str (uuid4),
+  "timestamp_utc":      ISO-8601,
+  "schema_version":     "3.0",
+  "source_ip_prefix":   str | null,
+  "target_ip_prefix":   str | null,
+  "tenant_id":          str | null,
+  "severity_estimate":  "INFO" | "MINOR" | "MAJOR" | "CRITICAL",
+  "detection": {                                    # Track A — XGBoost + SHAP
+    "track":              "A_XGB",
+    "attack_type":        one of CICDDOS_CLASS_NAMES,
+    "attack_class_id":    int [0..11],
+    "confidence":         float = 1 - P(BENIGN),
+    "is_attack":          bool,
+    "class_probs":        {class_name: prob, ...},
+    "shap_top_features":  [str, ...],               # top-K (default 5) names
+    "shap_values":        {feature_name: signed_shap, ...},
+    "explanation_text":   str
+  },
+  "forecast": {                                     # Track B — Stacked LSTM
+    "track":                  "B_LSTM",
+    "p_attack_1min":          float,
+    "p_attack_5min":          float,
+    "p_attack_15min":         float,
+    "pre_position_recommended": bool,
+    "triggered_horizon":      1 | 5 | 15 | null,    # longest active horizon
+    "perm_importance":        {var_name: importance, ...},
+    "forecast_justification": str
+  },
+  "xai": {                                          # convenience aggregate
+    "shap_top_features":     [...],
+    "shap_values":           {...},
+    "explanation_text":      str,
+    "perm_importance":       {...},
+    "forecast_justification": str
+  },
+  "model_versions": {
+    "xgboost":     str,
+    "lstm_track_b": str,
+    "schema":      "3.0"
+  }
+}
+
+Backward compatibility:
+  - The legacy 7-class enum and 30/60/90/120s horizon names are kept as
+    aliases (LEGACY_CLASS_NAMES, LEGACY_HORIZONS) so any older subscriber
+    can still parse messages — see `to_legacy_v2_dict()`.
+  - `build_output(...)` retains its old signature for any caller still using
+    the v2 schema; it now emits a v3-compatible payload internally.
 """
 
+from __future__ import annotations
+
 import json
-import uuid
 import logging
+import uuid
+from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
-from dataclasses import dataclass, asdict, field
-from typing import Optional
+from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
-# ── Class names (spec §2) ────────────────────────────────────────────────────
-CLASS_NAMES = {
-    0: "Normal",
-    1: "UDP_Flood",
-    2: "SYN_Flood",
-    3: "HTTP_Flood",
-    4: "ICMP_Flood",
-    5: "Amplification",
-    6: "Slow_rate",
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Spec §4.2 — 12-class CICDDoS2019 taxonomy
+# ─────────────────────────────────────────────────────────────────────────────
+
+CICDDOS_CLASS_NAMES: dict[int, str] = {
+    0:  'BENIGN',
+    1:  'DrDoS_DNS',
+    2:  'DrDoS_LDAP',
+    3:  'DrDoS_MSSQL',
+    4:  'DrDoS_NetBIOS',
+    5:  'DrDoS_NTP',
+    6:  'DrDoS_SNMP',
+    7:  'DrDoS_SSDP',
+    8:  'DrDoS_UDP',
+    9:  'Syn',
+    10: 'UDP-lag',
+    11: 'WebDDoS',
+}
+N_CICDDOS_CLASSES = 12
+
+# Spec §5.3 — `attack_type → CNF profile` map (used by M3 TierMapper)
+ATTACK_TYPE_TO_CNF_PROFILE: dict[str, str] = {
+    'BENIGN':         'none',
+    'DrDoS_DNS':      'cnf-scrubber-reflection',
+    'DrDoS_LDAP':     'cnf-scrubber-reflection',
+    'DrDoS_MSSQL':    'cnf-scrubber-reflection',
+    'DrDoS_NetBIOS':  'cnf-scrubber-reflection',
+    'DrDoS_NTP':      'cnf-scrubber-reflection',
+    'DrDoS_SNMP':     'cnf-scrubber-reflection',
+    'DrDoS_SSDP':     'cnf-scrubber-reflection',
+    'DrDoS_UDP':      'cnf-scrubber-reflection',
+    'Syn':            'cnf-scrubber-syn-proxy',
+    'UDP-lag':        'cnf-rate-limiter-token-bucket',
+    'WebDDoS':        'cnf-rate-limiter-app-layer',
 }
 
-# ── Thresholds (spec §4.6) ───────────────────────────────────────────────────
-PROACTIVE_THRESHOLD = 0.50      # P(t+30s) > 0.50 → pre-position
-DETECTION_THRESHOLD = 0.50      # confidence > 0.50 → alert
-TIER2_ACTION        = "PREPOSITION_TIER2_MITIGATION"
-TIER3_ACTION        = "ACTIVATE_TIER3_MITIGATION"
+# Spec §4.3 — operating thresholds per horizon, used to set `triggered_horizon`
+HORIZON_THRESHOLDS: dict[int, float] = {1: 0.85, 5: 0.70, 15: 0.50}
 
+PROACTIVE_THRESHOLD     = HORIZON_THRESHOLDS[5]   # default pre-position trigger
+DETECTION_THRESHOLD     = 0.50
+TIER2_ACTION            = 'PREPOSITION_TIER2_MITIGATION'
+TIER3_ACTION            = 'ACTIVATE_TIER3_MITIGATION'
+
+# ── Legacy aliases (v2 schema — still accepted for back-compat) ──────────────
+LEGACY_CLASS_NAMES: dict[int, str] = {
+    0: 'Normal', 1: 'UDP_Flood', 2: 'SYN_Flood', 3: 'HTTP_Flood',
+    4: 'ICMP_Flood', 5: 'Amplification', 6: 'Slow_rate',
+}
+LEGACY_HORIZONS = ('30s', '60s', '90s', '120s')
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Severity calculator (Spec §5.2 — VES `eventSeverity` band)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def severity_from_signals(
+    *,
+    confidence: float = 0.0,
+    p_attack_1min: float = 0.0,
+    p_attack_5min: float = 0.0,
+) -> str:
+    """
+    Map AI signals to a 4-level VES severity band.
+
+    Rules (Spec §5.2 / §5.3):
+      CRITICAL  — confidence ≥ 0.95  OR  p_attack_1min ≥ 0.95
+      MAJOR     — confidence ≥ 0.85  OR  p_attack_1min ≥ 0.85
+      MINOR     — p_attack_5min ≥ 0.70
+      INFO      — otherwise
+    """
+    if confidence >= 0.95 or p_attack_1min >= 0.95:
+        return 'CRITICAL'
+    if confidence >= 0.85 or p_attack_1min >= HORIZON_THRESHOLDS[1]:
+        return 'MAJOR'
+    if p_attack_5min >= HORIZON_THRESHOLDS[5]:
+        return 'MINOR'
+    return 'INFO'
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Dataclasses (schema 3.0)
+# ─────────────────────────────────────────────────────────────────────────────
 
 @dataclass
 class DetectionResult:
-    """7-class XGBoost detection output."""
-    attack_class: int               # 0–6
-    attack_type:  str               # human-readable
-    confidence:   float             # max softmax probability
-    class_probs:  dict              # {class_name: prob}
-    top_features: dict              # {feature_name: shap_value}  top-5 SHAP
+    """Track A output (Spec §4.6 — `detection` block)."""
+    track:              str = 'A_XGB'
+    attack_type:        str = 'BENIGN'
+    attack_class_id:    int = 0
+    confidence:         float = 0.0          # 1 − P(BENIGN)
+    is_attack:          bool = False
+    class_probs:        dict = field(default_factory=dict)
+    shap_top_features:  list = field(default_factory=list)
+    shap_values:        dict = field(default_factory=dict)
+    explanation_text:   str = ''
+    inference_ms:       float = 0.0
 
 
 @dataclass
 class ForecastResult:
-    """Transformer+LSTM 4-horizon forecast output."""
-    p_attack_30s:  float
-    p_attack_60s:  float
-    p_attack_90s:  float
-    p_attack_120s: float
-    proactive_trigger: bool         # True if P(t+30s) > PROACTIVE_THRESHOLD
-    recommended_action: str         # PREPOSITION_TIER2 / NONE
-
-
-@dataclass
-class ProactiveTrigger:
-    """Proactive pre-positioning signal issued when threshold exceeded."""
-    triggered:        bool
-    horizon_s:        int           # 30
-    threshold:        float         # 0.70
-    p_attack:         float         # actual P(t+30s)
-    action:           str
-    tier:             int           # 2
+    """Track B output (Spec §4.6 — `forecast` block)."""
+    track:                    str = 'B_LSTM'
+    p_attack_1min:            float = 0.0
+    p_attack_5min:            float = 0.0
+    p_attack_15min:           float = 0.0
+    pre_position_recommended: bool = False
+    triggered_horizon:        Optional[int] = None     # 1, 5, 15, or None
+    perm_importance:          dict = field(default_factory=dict)
+    forecast_justification:   str = ''
+    inference_ms:             float = 0.0
 
 
 @dataclass
 class AIOutputPayload:
-    """
-    Canonical AI output JSON payload for DMaaP / Policy Framework.
-    Spec §4.6 — sent every 5-second window.
-    """
-    event_id:         str
-    timestamp:        str           # ISO-8601 UTC
-    window_id:        int
-    detection:        DetectionResult
-    forecast:         ForecastResult
-    proactive_trigger: ProactiveTrigger
-    model_versions:   dict = field(default_factory=lambda: {
-        "xgboost": "2.0",
-        "transformer_lstm": "2.0",
+    """Spec §4.6 message published to `ai.detections` (schema 3.0)."""
+    event_id:           str
+    timestamp_utc:      str
+    schema_version:     str = '3.0'
+    source_ip_prefix:   Optional[str] = None
+    target_ip_prefix:   Optional[str] = None
+    tenant_id:          Optional[str] = None
+    severity_estimate:  str = 'INFO'
+    detection:          Optional[DetectionResult] = None
+    forecast:           Optional[ForecastResult]  = None
+    xai:                dict = field(default_factory=dict)
+    model_versions:     dict = field(default_factory=lambda: {
+        'xgboost':      'unknown',
+        'lstm_track_b': 'unknown',
+        'schema':       '3.0',
     })
-    schema_version:   str = "2.0"
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Builders
+# ─────────────────────────────────────────────────────────────────────────────
+
+def build_payload(
+    *,
+    detection:          Optional[DetectionResult] = None,
+    forecast:           Optional[ForecastResult]  = None,
+    source_ip_prefix:   Optional[str] = None,
+    target_ip_prefix:   Optional[str] = None,
+    tenant_id:          Optional[str] = None,
+    xgboost_version:    str = 'unknown',
+    lstm_track_b_version: str = 'unknown',
+) -> AIOutputPayload:
+    """
+    Compose a schema-3.0 payload from independent Track A / Track B results.
+    Exactly one of `detection` / `forecast` may be None (partial bucket).
+    """
+    conf = detection.confidence       if detection is not None else 0.0
+    p1   = forecast.p_attack_1min     if forecast  is not None else 0.0
+    p5   = forecast.p_attack_5min     if forecast  is not None else 0.0
+    sev  = severity_from_signals(
+        confidence=conf, p_attack_1min=p1, p_attack_5min=p5,
+    )
+
+    xai: dict = {}
+    if detection is not None:
+        xai['shap_top_features'] = list(detection.shap_top_features)
+        xai['shap_values']       = dict(detection.shap_values)
+        xai['explanation_text']  = detection.explanation_text
+    if forecast is not None:
+        xai['perm_importance']        = dict(forecast.perm_importance)
+        xai['forecast_justification'] = forecast.forecast_justification
+
+    return AIOutputPayload(
+        event_id          = str(uuid.uuid4()),
+        timestamp_utc     = datetime.now(timezone.utc).isoformat(),
+        source_ip_prefix  = source_ip_prefix,
+        target_ip_prefix  = target_ip_prefix,
+        tenant_id         = tenant_id,
+        severity_estimate = sev,
+        detection         = detection,
+        forecast          = forecast,
+        xai               = xai,
+        model_versions    = {
+            'xgboost':      xgboost_version,
+            'lstm_track_b': lstm_track_b_version,
+            'schema':       '3.0',
+        },
+    )
+
+
+# ── Legacy compatibility shim ────────────────────────────────────────────────
 
 def build_output(
     *,
-    window_id:   int,
-    class_probs: list,          # shape (7,) from XGBoost predict_proba
-    forecast:    list,          # shape (4,) from Transformer P(attack) per horizon
-    top_features: dict,         # {feat: shap_val}  (pass {} if SHAP unavailable)
-    xgboost_version: str = "2.0",
-    transformer_version: str = "2.0",
+    window_id:        int = 0,
+    class_probs:      Optional[list] = None,    # 7 or 12 elements
+    forecast:         Optional[list] = None,    # 4 or 3 elements
+    top_features:     Optional[dict] = None,
+    xgboost_version:  str = 'unknown',
+    transformer_version: str = 'unknown',
+    source_ip_prefix: Optional[str] = None,
+    target_ip_prefix: Optional[str] = None,
+    tenant_id:        Optional[str] = None,
 ) -> AIOutputPayload:
     """
-    Build a complete AIOutputPayload from model outputs.
+    Legacy v2 entry point — kept for any caller that hasn't been migrated yet.
 
-    Args:
-        window_id:    sequential window index
-        class_probs:  7-element probability vector (XGBoost softmax)
-        forecast:     4-element forecast vector [P30, P60, P90, P120]
-        top_features: SHAP top-5 dict {feature_name: importance}
+    Handles both:
+      * 7-class (legacy) probs → folded into the 12-class taxonomy
+        ('Normal'→'BENIGN', 'UDP_Flood'→'DrDoS_UDP', 'SYN_Flood'→'Syn',
+         'HTTP_Flood'+'Slow_rate'→'WebDDoS', 'Amplification' split across
+         DrDoS_DNS..SSDP, 'ICMP_Flood'→'UDP-lag' as proxy)
+      * 12-class probs → passed through.
 
-    Returns:
-        AIOutputPayload dataclass
+    Forecast input may be 4-tuple (legacy 30/60/90/120s) or 3-tuple
+    (spec 1/5/15 min). For the legacy 4-tuple the 120-s head is projected
+    to the 1/5/15-min horizons via the same decay used in the inference layer.
     """
     import numpy as np
-    class_probs = list(class_probs)
-    forecast    = list(forecast)
 
-    # ── Detection ────────────────────────────────────────────────────────────
-    best_class = int(np.argmax(class_probs))
-    confidence = float(class_probs[best_class])
-    class_prob_dict = {CLASS_NAMES[i]: float(class_probs[i]) for i in range(7)}
+    class_probs = list(class_probs or [])
+    forecast    = list(forecast or [])
+    top_features = dict(top_features or {})
+
+    # ── Class-probability normalization ──────────────────────────────────────
+    probs_12 = _coerce_class_probs(class_probs)
+
+    best_id  = int(np.argmax(probs_12)) if probs_12.any() else 0
+    attack_p = float(1.0 - probs_12[0])
+    is_attack = best_id != 0
 
     detection = DetectionResult(
-        attack_class = best_class,
-        attack_type  = CLASS_NAMES[best_class],
-        confidence   = confidence,
-        class_probs  = class_prob_dict,
-        top_features = top_features,
-    )
-
-    # ── Forecast ──────────────────────────────────────────────────────────────
-    p30, p60, p90, p120 = [float(p) for p in forecast[:4]]
-
-    # Gate proactive trigger on BOTH Transformer AND XGBoost signals (Fix #3).
-    # Requires:
-    #   1. P(t+30s) > PROACTIVE_THRESHOLD  — Transformer sees future threat
-    #   2. XGBoost confidence > 0.75       — Current window is clearly attack
-    #   3. XGBoost class != Normal         — Not a false positive
-    CONF_GATE = 0.75
-    proactive_triggered = (
-        p30 > PROACTIVE_THRESHOLD
-        and confidence > CONF_GATE
-        and best_class != 0   # not Normal
-    )
-    recommended_action  = TIER2_ACTION if proactive_triggered else "NONE"
-
-    forecast_result = ForecastResult(
-        p_attack_30s  = p30,
-        p_attack_60s  = p60,
-        p_attack_90s  = p90,
-        p_attack_120s = p120,
-        proactive_trigger  = proactive_triggered,
-        recommended_action = recommended_action,
-    )
-
-    # ── Proactive trigger ────────────────────────────────────────────────────
-    trigger = ProactiveTrigger(
-        triggered  = proactive_triggered,
-        horizon_s  = 30,
-        threshold  = PROACTIVE_THRESHOLD,
-        p_attack   = p30,
-        action     = TIER2_ACTION if proactive_triggered else "NONE",
-        tier       = 2,
-    )
-
-    if proactive_triggered:
-        logger.info(
-            f"[ProactiveTrigger] window={window_id} "
-            f"P(t+30s)={p30:.3f} > {PROACTIVE_THRESHOLD} "
-            f"conf={confidence:.3f} > {CONF_GATE} "
-            f"class={CLASS_NAMES[best_class]} "
-            f"→ {TIER2_ACTION}"
-        )
-
-    payload = AIOutputPayload(
-        event_id  = str(uuid.uuid4()),
-        timestamp = datetime.now(timezone.utc).isoformat(),
-        window_id = window_id,
-        detection = detection,
-        forecast  = forecast_result,
-        proactive_trigger = trigger,
-        model_versions = {
-            "xgboost":            xgboost_version,
-            "transformer_lstm":   transformer_version,
+        track             = 'A_XGB',
+        attack_type       = CICDDOS_CLASS_NAMES[best_id],
+        attack_class_id   = best_id,
+        confidence        = attack_p,
+        is_attack         = is_attack,
+        class_probs       = {
+            CICDDOS_CLASS_NAMES[i]: float(probs_12[i])
+            for i in range(N_CICDDOS_CLASSES)
         },
+        shap_top_features = list(top_features.keys())[:5],
+        shap_values       = {k: float(v) for k, v in top_features.items()},
+        explanation_text  = _legacy_explanation(
+            CICDDOS_CLASS_NAMES[best_id], top_features,
+        ),
     )
-    return payload
+
+    # ── Forecast normalization (4-horizon legacy → 3-horizon spec) ───────────
+    p1, p5, p15 = _coerce_forecast(forecast)
+    triggered = None
+    if p15 >= HORIZON_THRESHOLDS[15]:
+        triggered = 15
+    if p5 >= HORIZON_THRESHOLDS[5]:
+        triggered = 5
+    if p1 >= HORIZON_THRESHOLDS[1]:
+        triggered = 1
+
+    fc = ForecastResult(
+        track                    = 'B_LSTM',
+        p_attack_1min            = float(p1),
+        p_attack_5min            = float(p5),
+        p_attack_15min           = float(p15),
+        pre_position_recommended = (triggered is not None and triggered >= 5),
+        triggered_horizon        = triggered,
+    )
+
+    return build_payload(
+        detection           = detection,
+        forecast            = fc,
+        source_ip_prefix    = source_ip_prefix,
+        target_ip_prefix    = target_ip_prefix,
+        tenant_id           = tenant_id,
+        xgboost_version     = xgboost_version,
+        lstm_track_b_version = transformer_version,
+    )
 
 
-def payload_to_dict(payload: AIOutputPayload) -> dict:
-    """Serialize AIOutputPayload to a JSON-serializable dict."""
-    return asdict(payload)
+def _coerce_class_probs(class_probs: list):
+    """Map a 7- or 12-element prob vector into the canonical 12-class space."""
+    import numpy as np
+    a = np.array(class_probs, dtype=np.float32) if class_probs else np.zeros(N_CICDDOS_CLASSES)
+    if a.size == N_CICDDOS_CLASSES:
+        return a
+    if a.size == 7:
+        # Provisional legacy-7 → CICDDoS-12 mapping (matches inference_layer)
+        out = np.zeros(N_CICDDOS_CLASSES, dtype=np.float32)
+        amp = a[5] / 7.0
+        out[0]  = a[0]                          # BENIGN
+        out[1]  = amp                           # DrDoS_DNS
+        out[2]  = amp                           # DrDoS_LDAP
+        out[3]  = amp                           # DrDoS_MSSQL
+        out[4]  = amp                           # DrDoS_NetBIOS
+        out[5]  = amp                           # DrDoS_NTP
+        out[6]  = amp                           # DrDoS_SNMP
+        out[7]  = amp                           # DrDoS_SSDP
+        out[8]  = a[1]                          # DrDoS_UDP    ← UDP_Flood
+        out[9]  = a[2]                          # Syn          ← SYN_Flood
+        out[10] = a[4]                          # UDP-lag      ← ICMP_Flood (proxy)
+        out[11] = a[3] + a[6]                   # WebDDoS      ← HTTP + Slow
+        s = out.sum()
+        return out / s if s > 0 else out
+    out = np.zeros(N_CICDDOS_CLASSES, dtype=np.float32)
+    n = min(a.size, N_CICDDOS_CLASSES)
+    out[:n] = a[:n]
+    return out
+
+
+def _coerce_forecast(forecast: list):
+    """Project a 3- or 4-element forecast vector to the spec (P1, P5, P15)."""
+    if not forecast:
+        return 0.0, 0.0, 0.0
+    if len(forecast) == 3:
+        return float(forecast[0]), float(forecast[1]), float(forecast[2])
+    if len(forecast) == 4:
+        # Legacy 30/60/90/120s heads → spec 1/5/15-min projection
+        p120 = float(forecast[3])
+        return p120, p120 * 0.85, p120 * 0.50
+    p = list(forecast) + [0.0] * (3 - len(forecast))
+    return float(p[0]), float(p[1]), float(p[2])
+
+
+def _legacy_explanation(attack_type: str, top_features: dict) -> str:
+    if not top_features:
+        return f'Predicted {attack_type}; no SHAP attribution available.'
+    parts = []
+    for name, val in list(top_features.items())[:3]:
+        parts.append(f'{val:+.3f} {name}')
+    return f'Predicted {attack_type} because ' + ' and '.join(parts)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Serialization helpers
+# ─────────────────────────────────────────────────────────────────────────────
+
+def payload_to_dict(payload: AIOutputPayload) -> dict[str, Any]:
+    """Schema 3.0 dict (NumPy-aware)."""
+    import numpy as np
+
+    def _conv(o):
+        if isinstance(o, dict):
+            return {k: _conv(v) for k, v in o.items()}
+        if isinstance(o, (list, tuple)):
+            return [_conv(v) for v in o]
+        if isinstance(o, np.ndarray):
+            return o.tolist()
+        if isinstance(o, np.floating):
+            return float(o)
+        if isinstance(o, np.integer):
+            return int(o)
+        return o
+    return _conv(asdict(payload))
 
 
 def payload_to_json(payload: AIOutputPayload, indent: int = 2) -> str:
-    """Serialize AIOutputPayload to JSON string."""
     return json.dumps(payload_to_dict(payload), indent=indent)
 
 
-def emit_to_dmaap_stub(payload: AIOutputPayload, out_path: str = None) -> None:
+def to_legacy_v2_dict(payload: AIOutputPayload) -> dict[str, Any]:
     """
-    Emit the AI output payload.
+    Render a v2-compatible dict for any pre-existing subscriber that still
+    expects 7-class names and 30/60/90/120s horizon fields.
 
-    In the real deployment this would POST to DMaaP MR topic.
-    Here it writes a JSON file (DMaaP stub for integration testing).
-
-    Args:
-        payload:  AIOutputPayload
-        out_path: path to write JSON, defaults to /tmp/ai_output_<event_id>.json
+    Mapping (12 → 7):
+      BENIGN        → Normal
+      DrDoS_DNS..SSDP and DrDoS_UDP → Amplification (sum) + UDP_Flood (DrDoS_UDP only)
+      Syn           → SYN_Flood
+      UDP-lag       → ICMP_Flood (proxy)
+      WebDDoS       → HTTP_Flood
     """
-    import tempfile, os
+    det  = payload.detection
+    fc   = payload.forecast
+    base = payload_to_dict(payload)
+
+    if det is not None:
+        cp12  = det.class_probs
+        legacy_probs = {
+            'Normal':        cp12.get('BENIGN', 0.0),
+            'UDP_Flood':     cp12.get('DrDoS_UDP', 0.0),
+            'SYN_Flood':     cp12.get('Syn', 0.0),
+            'HTTP_Flood':    cp12.get('WebDDoS', 0.0),
+            'ICMP_Flood':    cp12.get('UDP-lag', 0.0),
+            'Amplification': sum(cp12.get(k, 0.0) for k in
+                                 ('DrDoS_DNS', 'DrDoS_LDAP', 'DrDoS_MSSQL',
+                                  'DrDoS_NetBIOS', 'DrDoS_NTP',
+                                  'DrDoS_SNMP', 'DrDoS_SSDP')),
+            'Slow_rate':     0.0,
+        }
+        legacy_class = max(legacy_probs.items(), key=lambda kv: kv[1])
+        base['detection'] = {
+            'attack_class': list(LEGACY_CLASS_NAMES.values()).index(legacy_class[0]),
+            'attack_type':  legacy_class[0],
+            'confidence':   det.confidence,
+            'class_probs':  legacy_probs,
+            'top_features': det.shap_values,
+        }
+
+    if fc is not None:
+        # Project (P1,P5,P15) back to (30s,60s,90s,120s) heads via geometric decay
+        p1 = fc.p_attack_1min
+        base['forecast'] = {
+            'p_attack_30s':  p1,
+            'p_attack_60s':  p1 * 0.95,
+            'p_attack_90s':  p1 * 0.90,
+            'p_attack_120s': p1 * 0.85,
+            'proactive_trigger':  fc.pre_position_recommended,
+            'recommended_action': (TIER2_ACTION if fc.pre_position_recommended
+                                   else 'NONE'),
+        }
+        base['proactive_trigger'] = {
+            'triggered': fc.pre_position_recommended,
+            'horizon_s': 60 * (fc.triggered_horizon or 1),
+            'threshold': HORIZON_THRESHOLDS.get(fc.triggered_horizon or 1, 0.5),
+            'p_attack':  p1,
+            'action':    (TIER2_ACTION if fc.pre_position_recommended else 'NONE'),
+            'tier':      2,
+        }
+
+    base['schema_version']   = '2.0'
+    return base
+
+
+def emit_to_dmaap_stub(payload: AIOutputPayload, out_path: Optional[str] = None) -> None:
+    """File-system DMaaP stub (real deployment posts to DMaaP MR topic)."""
+    import os
+    import tempfile
     if out_path is None:
         out_path = os.path.join(
-            tempfile.gettempdir(),
-            f"ai_output_{payload.event_id[:8]}.json"
+            tempfile.gettempdir(), f'ai_output_{payload.event_id[:8]}.json'
         )
-
-    data = payload_to_json(payload)
     with open(out_path, 'w') as f:
-        f.write(data)
+        f.write(payload_to_json(payload))
+    logger.debug(f'[DMaaP stub] wrote payload to {out_path}')
 
-    logger.debug(f"[DMaaP stub] Wrote payload to {out_path}")
 
+# ── Example schema (documentation) ───────────────────────────────────────────
 
-# ── Example schema (for documentation) ───────────────────────────────────────
 EXAMPLE_SCHEMA = {
-    "event_id":   "uuid-v4",
-    "timestamp":  "2026-04-05T12:00:00+00:00",
-    "window_id":  42,
-    "schema_version": "2.0",
-    "model_versions": {
-        "xgboost":          "2.0",
-        "transformer_lstm": "2.0",
+    'event_id':         'uuid-v4',
+    'timestamp_utc':    '2026-05-06T12:00:00+00:00',
+    'schema_version':   '3.0',
+    'source_ip_prefix': '10.20.0.0/16',
+    'target_ip_prefix': '198.51.100.0/24',
+    'tenant_id':        'slice-eMBB',
+    'severity_estimate': 'MAJOR',
+    'detection': {
+        'track':              'A_XGB',
+        'attack_type':        'DrDoS_UDP',
+        'attack_class_id':    8,
+        'confidence':         0.97,
+        'is_attack':          True,
+        'class_probs':        {n: 0.0 for n in CICDDOS_CLASS_NAMES.values()},
+        'shap_top_features':  ['flow_packets_per_sec', 'flow_bytes_per_sec',
+                               'syn_flag_count', 'protocol', 'flow_iat_mean'],
+        'shap_values':        {'flow_packets_per_sec': 0.43,
+                               'flow_bytes_per_sec':   0.31,
+                               'syn_flag_count':       0.18,
+                               'protocol':            -0.05,
+                               'flow_iat_mean':        0.04},
+        'explanation_text':   'Predicted DrDoS_UDP because +0.430 flow_packets_per_sec '
+                              'and +0.310 flow_bytes_per_sec and +0.180 syn_flag_count',
     },
-    "detection": {
-        "attack_class": 2,
-        "attack_type":  "SYN_Flood",
-        "confidence":   0.97,
-        "class_probs": {
-            "Normal": 0.01, "UDP_Flood": 0.01, "SYN_Flood": 0.97,
-            "HTTP_Flood": 0.005, "ICMP_Flood": 0.0, "Amplification": 0.005, "Slow_rate": 0.0
+    'forecast': {
+        'track':                    'B_LSTM',
+        'p_attack_1min':            0.92,
+        'p_attack_5min':            0.78,
+        'p_attack_15min':           0.55,
+        'pre_position_recommended': True,
+        'triggered_horizon':        1,
+        'perm_importance': {
+            'pkt_count_total':     0.31,
+            'syn_count':           0.24,
+            'unique_src_ip_count': 0.18,
+            'byte_count_total':    0.14,
+            'avg_pkt_size':        0.08,
+            'unique_dst_ip_count': 0.05,
         },
-        "top_features": {
-            "syn_ratio": 0.45, "pkt_rate": 0.22, "src_ip_entropy": 0.18,
-            "proto_dist_tcp": 0.10, "new_flows_rate": 0.05
-        }
+        'forecast_justification': 'Forecast P(t+1)=0.920, P(t+5)=0.780, P(t+15)=0.550; '
+                                  'top drivers: pkt_count_total (0.31), syn_count (0.24), '
+                                  'unique_src_ip_count (0.18)',
     },
-    "forecast": {
-        "p_attack_30s":  0.92,
-        "p_attack_60s":  0.88,
-        "p_attack_90s":  0.81,
-        "p_attack_120s": 0.74,
-        "proactive_trigger":  True,
-        "recommended_action": "PREPOSITION_TIER2_MITIGATION",
+    'xai': {
+        'shap_top_features':       ['flow_packets_per_sec', 'flow_bytes_per_sec'],
+        'explanation_text':        'Predicted DrDoS_UDP because ...',
+        'forecast_justification':  'Forecast P(t+1)=0.92 ...',
     },
-    "proactive_trigger": {
-        "triggered": True,
-        "horizon_s": 30,
-        "threshold": 0.50,
-        "p_attack":  0.92,
-        "action":    "PREPOSITION_TIER2_MITIGATION",
-        "tier":      2,
-    }
+    'model_versions': {
+        'xgboost':      'xgboost_track_a',
+        'lstm_track_b': 'lstm_track_b',
+        'schema':       '3.0',
+    },
 }
 
 
 if __name__ == '__main__':
-    # Smoke test
-    import numpy as np
     logging.basicConfig(level=logging.INFO)
-
-    fake_class_probs = np.array([0.01, 0.01, 0.92, 0.02, 0.0, 0.03, 0.01])
-    fake_forecast    = [0.88, 0.82, 0.75, 0.68]
-    fake_shap        = {"syn_ratio": 0.45, "pkt_rate": 0.22}
-
-    p = build_output(
-        window_id=1,
-        class_probs=fake_class_probs,
-        forecast=fake_forecast,
-        top_features=fake_shap,
+    sample = build_payload(
+        detection = DetectionResult(
+            attack_type='DrDoS_UDP', attack_class_id=8, confidence=0.97,
+            is_attack=True,
+            class_probs={n: 0.0 for n in CICDDOS_CLASS_NAMES.values()},
+            shap_top_features=['flow_packets_per_sec'],
+            shap_values={'flow_packets_per_sec': 0.43},
+            explanation_text='Predicted DrDoS_UDP because +0.430 flow_packets_per_sec',
+        ),
+        forecast = ForecastResult(
+            p_attack_1min=0.92, p_attack_5min=0.78, p_attack_15min=0.55,
+            pre_position_recommended=True, triggered_horizon=1,
+        ),
+        source_ip_prefix='10.20.0.0/16',
+        target_ip_prefix='198.51.100.0/24',
+        tenant_id='slice-eMBB',
     )
-
-    print(payload_to_json(p))
-    print(f"\nProactive trigger: {p.proactive_trigger.triggered}")
-    print(f"Recommended action: {p.forecast.recommended_action}")
+    print(payload_to_json(sample))
