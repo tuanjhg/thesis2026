@@ -173,11 +173,21 @@ def _track_b_from_minute(samples_in_minute: list[np.ndarray]) -> np.ndarray:
 # Scenario builders
 # ─────────────────────────────────────────────────────────────────────────────
 
+# 5-class P3 label map.  Reflection sub-type names (DrDoS_*) are kept as
+# aliases because the traffic generator still differentiates between them at
+# the packet level even though the classifier collapses them into the
+# Amplification macro-class.
 CICDDOS_NAME_TO_ID = {
-    'BENIGN': 0,
-    'DrDoS_DNS': 1, 'DrDoS_LDAP': 2, 'DrDoS_MSSQL': 3, 'DrDoS_NetBIOS': 4,
-    'DrDoS_NTP': 5, 'DrDoS_SNMP': 6, 'DrDoS_SSDP': 7, 'DrDoS_UDP': 8,
-    'Syn': 9, 'UDP-lag': 10, 'WebDDoS': 11,
+    'BENIGN':        0,
+    # 8 reflection sub-types → Amplification (label 1)
+    'DrDoS_DNS':     1, 'DrDoS_LDAP':    1, 'DrDoS_MSSQL': 1,
+    'DrDoS_NetBIOS': 1, 'DrDoS_NTP':     1, 'DrDoS_SNMP':  1,
+    'DrDoS_SSDP':    1, 'DrDoS_UDP':     1,
+    'Amplification': 1,
+    # Exploitation / application-layer keep their own id
+    'Syn':           2,
+    'UDP-lag':       3,
+    'WebDDoS':       4,
 }
 
 

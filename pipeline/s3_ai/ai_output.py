@@ -73,24 +73,26 @@ logger = logging.getLogger(__name__)
 # ─────────────────────────────────────────────────────────────────────────────
 
 CICDDOS_CLASS_NAMES: dict[int, str] = {
-    0:  'BENIGN',
-    1:  'DrDoS_DNS',
-    2:  'DrDoS_LDAP',
-    3:  'DrDoS_MSSQL',
-    4:  'DrDoS_NetBIOS',
-    5:  'DrDoS_NTP',
-    6:  'DrDoS_SNMP',
-    7:  'DrDoS_SSDP',
-    8:  'DrDoS_UDP',
-    9:  'Syn',
-    10: 'UDP-lag',
-    11: 'WebDDoS',
+    0: 'BENIGN',
+    1: 'Amplification',     # macro-class: DrDoS_DNS/LDAP/MSSQL/NetBIOS/NTP/SNMP/SSDP/UDP
+    2: 'Syn',
+    3: 'UDP-lag',
+    4: 'WebDDoS',
 }
-N_CICDDOS_CLASSES = 12
+N_CICDDOS_CLASSES = 5
 
-# Spec §5.3 — `attack_type → CNF profile` map (used by M3 TierMapper)
+# Spec §5.3 — `attack_type → CNF profile` map (used by M3 TierMapper).
+# Sub-type entries (DrDoS_DNS, DrDoS_LDAP, ...) are kept as aliases for
+# backwards-compatibility with any caller that has not yet migrated to the
+# 5-class taxonomy.
 ATTACK_TYPE_TO_CNF_PROFILE: dict[str, str] = {
     'BENIGN':         'none',
+    # P3 canonical 5-class
+    'Amplification':  'cnf-scrubber-reflection',
+    'Syn':            'cnf-scrubber-syn-proxy',
+    'UDP-lag':        'cnf-rate-limiter-token-bucket',
+    'WebDDoS':        'cnf-rate-limiter-app-layer',
+    # Legacy aliases (12-class IJSRA-2021 schema)
     'DrDoS_DNS':      'cnf-scrubber-reflection',
     'DrDoS_LDAP':     'cnf-scrubber-reflection',
     'DrDoS_MSSQL':    'cnf-scrubber-reflection',
@@ -99,9 +101,6 @@ ATTACK_TYPE_TO_CNF_PROFILE: dict[str, str] = {
     'DrDoS_SNMP':     'cnf-scrubber-reflection',
     'DrDoS_SSDP':     'cnf-scrubber-reflection',
     'DrDoS_UDP':      'cnf-scrubber-reflection',
-    'Syn':            'cnf-scrubber-syn-proxy',
-    'UDP-lag':        'cnf-rate-limiter-token-bucket',
-    'WebDDoS':        'cnf-rate-limiter-app-layer',
 }
 
 # Spec §4.3 — operating thresholds per horizon, used to set `triggered_horizon`
@@ -342,29 +341,46 @@ def build_output(
 
 
 def _coerce_class_probs(class_probs: list):
-    """Map a 7- or 12-element prob vector into the canonical 12-class space."""
+    """
+    Normalise a probability vector to the canonical 5-class P3 space.
+
+    Accepted input shapes:
+      * 5-vector  — pass through (P3 canonical).
+      * 12-vector — fold the 8 reflection slots into Amplification.
+      * 7-vector  — legacy v2 (Normal, UDP_Flood, SYN_Flood, HTTP_Flood,
+                    ICMP_Flood, Amplification, Slow_rate) → P3 5-class.
+      * Otherwise — zero-pad or truncate.
+    """
     import numpy as np
     a = np.array(class_probs, dtype=np.float32) if class_probs else np.zeros(N_CICDDOS_CLASSES)
+
+    # Already 5-class
     if a.size == N_CICDDOS_CLASSES:
         return a
-    if a.size == 7:
-        # Provisional legacy-7 → CICDDoS-12 mapping (matches inference_layer)
+
+    # 12-class CICDDoS → 5-class (fold reflection slots)
+    if a.size == 12:
         out = np.zeros(N_CICDDOS_CLASSES, dtype=np.float32)
-        amp = a[5] / 7.0
-        out[0]  = a[0]                          # BENIGN
-        out[1]  = amp                           # DrDoS_DNS
-        out[2]  = amp                           # DrDoS_LDAP
-        out[3]  = amp                           # DrDoS_MSSQL
-        out[4]  = amp                           # DrDoS_NetBIOS
-        out[5]  = amp                           # DrDoS_NTP
-        out[6]  = amp                           # DrDoS_SNMP
-        out[7]  = amp                           # DrDoS_SSDP
-        out[8]  = a[1]                          # DrDoS_UDP    ← UDP_Flood
-        out[9]  = a[2]                          # Syn          ← SYN_Flood
-        out[10] = a[4]                          # UDP-lag      ← ICMP_Flood (proxy)
-        out[11] = a[3] + a[6]                   # WebDDoS      ← HTTP + Slow
+        out[0] = a[0]                       # BENIGN
+        out[1] = float(a[1:9].sum())        # Amplification ← DrDoS_DNS..DrDoS_UDP
+        out[2] = a[9]                       # Syn
+        out[3] = a[10]                      # UDP-lag
+        out[4] = a[11]                      # WebDDoS
         s = out.sum()
         return out / s if s > 0 else out
+
+    # 7-class legacy → 5-class (provisional bridge)
+    if a.size == 7:
+        out = np.zeros(N_CICDDOS_CLASSES, dtype=np.float32)
+        out[0] = a[0]                       # BENIGN          ← Normal
+        out[1] = a[1] + a[5]                # Amplification   ← UDP_Flood + Amplification
+        out[2] = a[2]                       # Syn             ← SYN_Flood
+        out[3] = a[4]                       # UDP-lag         ← ICMP_Flood (proxy)
+        out[4] = a[3] + a[6]                # WebDDoS         ← HTTP_Flood + Slow_rate
+        s = out.sum()
+        return out / s if s > 0 else out
+
+    # Unknown shape — copy first N slots, zero-pad the rest
     out = np.zeros(N_CICDDOS_CLASSES, dtype=np.float32)
     n = min(a.size, N_CICDDOS_CLASSES)
     out[:n] = a[:n]
@@ -426,29 +442,30 @@ def to_legacy_v2_dict(payload: AIOutputPayload) -> dict[str, Any]:
     Render a v2-compatible dict for any pre-existing subscriber that still
     expects 7-class names and 30/60/90/120s horizon fields.
 
-    Mapping (12 → 7):
+    Mapping (5 P3 → 7 legacy):
       BENIGN        → Normal
-      DrDoS_DNS..SSDP and DrDoS_UDP → Amplification (sum) + UDP_Flood (DrDoS_UDP only)
+      Amplification → Amplification (also dual-tagged as UDP_Flood for
+                                     subscribers that key on UDP_Flood)
       Syn           → SYN_Flood
-      UDP-lag       → ICMP_Flood (proxy)
+      UDP-lag       → ICMP_Flood (closest legacy slot — kept as proxy)
       WebDDoS       → HTTP_Flood
+      (HTTP_Flood + Slow_rate share the WebDDoS source slot.)
     """
     det  = payload.detection
     fc   = payload.forecast
     base = payload_to_dict(payload)
 
     if det is not None:
-        cp12  = det.class_probs
+        cp5  = det.class_probs
+        amp  = cp5.get('Amplification', 0.0)
+        webd = cp5.get('WebDDoS', 0.0)
         legacy_probs = {
-            'Normal':        cp12.get('BENIGN', 0.0),
-            'UDP_Flood':     cp12.get('DrDoS_UDP', 0.0),
-            'SYN_Flood':     cp12.get('Syn', 0.0),
-            'HTTP_Flood':    cp12.get('WebDDoS', 0.0),
-            'ICMP_Flood':    cp12.get('UDP-lag', 0.0),
-            'Amplification': sum(cp12.get(k, 0.0) for k in
-                                 ('DrDoS_DNS', 'DrDoS_LDAP', 'DrDoS_MSSQL',
-                                  'DrDoS_NetBIOS', 'DrDoS_NTP',
-                                  'DrDoS_SNMP', 'DrDoS_SSDP')),
+            'Normal':        cp5.get('BENIGN', 0.0),
+            'UDP_Flood':     amp,                # subscribers keyed on UDP_Flood
+            'SYN_Flood':     cp5.get('Syn', 0.0),
+            'HTTP_Flood':    webd,
+            'ICMP_Flood':    cp5.get('UDP-lag', 0.0),
+            'Amplification': amp,
             'Slow_rate':     0.0,
         }
         legacy_class = max(legacy_probs.items(), key=lambda kv: kv[1])
@@ -510,8 +527,8 @@ EXAMPLE_SCHEMA = {
     'severity_estimate': 'MAJOR',
     'detection': {
         'track':              'A_XGB',
-        'attack_type':        'DrDoS_UDP',
-        'attack_class_id':    8,
+        'attack_type':        'Amplification',
+        'attack_class_id':    1,
         'confidence':         0.97,
         'is_attack':          True,
         'class_probs':        {n: 0.0 for n in CICDDOS_CLASS_NAMES.values()},
@@ -522,7 +539,7 @@ EXAMPLE_SCHEMA = {
                                'syn_flag_count':       0.18,
                                'protocol':            -0.05,
                                'flow_iat_mean':        0.04},
-        'explanation_text':   'Predicted DrDoS_UDP because +0.430 flow_packets_per_sec '
+        'explanation_text':   'Predicted Amplification because +0.430 flow_packets_per_sec '
                               'and +0.310 flow_bytes_per_sec and +0.180 syn_flag_count',
     },
     'forecast': {
@@ -561,12 +578,12 @@ if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO)
     sample = build_payload(
         detection = DetectionResult(
-            attack_type='DrDoS_UDP', attack_class_id=8, confidence=0.97,
+            attack_type='Amplification', attack_class_id=1, confidence=0.97,
             is_attack=True,
             class_probs={n: 0.0 for n in CICDDOS_CLASS_NAMES.values()},
             shap_top_features=['flow_packets_per_sec'],
             shap_values={'flow_packets_per_sec': 0.43},
-            explanation_text='Predicted DrDoS_UDP because +0.430 flow_packets_per_sec',
+            explanation_text='Predicted Amplification because +0.430 flow_packets_per_sec',
         ),
         forecast = ForecastResult(
             p_attack_1min=0.92, p_attack_5min=0.78, p_attack_15min=0.55,

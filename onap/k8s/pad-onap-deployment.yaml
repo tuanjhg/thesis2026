@@ -19,22 +19,41 @@ metadata:
   name: pad-onap-config
   namespace: pad-onap
 data:
+  # ── Deploy mode (v3 canonical) ─────────────────────────────────
+  # PAD_DEPLOY_MODE = stub | helm | onap
+  #   stub : Docker SDK (legacy testbed; ignored inside K8s)
+  #   helm : direct `helm install/uninstall` against this cluster
+  #   onap : ONAP SO REST v7 (production path)
+  PAD_DEPLOY_MODE:        "onap"
+  # Legacy alias preserved for backwards-compat with older code paths
   PAD_ONAP_STUB:          "false"
-  PAD_BYPASS_DMAAP:       "true"
-  PAD_ONAP_SO_URL:        "http://10.152.183.81:30277"
+
+  # ── ONAP service endpoints (in-cluster DNS) ────────────────────
+  PAD_ONAP_SO_URL:        "http://so.onap.svc.cluster.local:8080"
+  PAD_ONAP_POLICY_URL:    "http://policy-pap.onap.svc.cluster.local:6969"
   PAD_DMAAP_HOST:         "message-router.onap.svc.cluster.local"
   PAD_DMAAP_PORT:         "3904"
   PAD_DMAAP_TOPIC:        "PAD_ONAP_AI_SIGNALS"
   PAD_DMAAP_USE_KAFKA:    "false"
-  PAD_ONAP_POLICY_URL:    "http://10.152.183.232:30769"
-  PAD_OVS_BRIDGE:         "br-pad"
+  PAD_BYPASS_DMAAP:       "false"
   PAD_SDN_URL:            "http://sdnr.onap.svc.cluster.local:8282"
+
+  # ── Helm-mode fall-back (used only when PAD_DEPLOY_MODE=helm) ─
+  PAD_HELM_NAMESPACE:     "pad-onap"
+  PAD_HELM_CHART_REPO:    "/app/onap/k8s/helm"
+
+  # ── Kafka (PAD's own broker — NOT ONAP DMaaP) ──────────────────
+  PAD_KAFKA_BROKER:       "kafka.pad-onap.svc.cluster.local:9092"
+
+  # ── Internal ports & paths ─────────────────────────────────────
+  PAD_OVS_BRIDGE:         "br-pad"
   PAD_GNMI_PORT:          "8080"
   PAD_COLLECTOR_PORT:     "7070"
   PAD_PROMETHEUS_PORT:    "9190"
   PAD_LATENCY_PORT:       "9292"
-  PAD_MODEL_DIR:          "/app/models_v2"
-  PAD_DATA_DIR:           "/app/data"
+  PAD_HEALTH_PORT:        "9293"
+  PAD_MODEL_DIR:          "/app/pad_onap_v3/models"
+  PAD_DATA_DIR:           "/app/pad_onap_v3/processed"
   LOG_LEVEL:              "INFO"
 
 ---
@@ -133,14 +152,28 @@ spec:
             - python
             - -m
             - pipeline.s4_orchestration.orchestrator
+          args:
             - --source
-            - http
-            - --max-windows
-            - "0"           # 0 = run indefinitely
+            - kafka
+            - --broker
+            - "$(PAD_KAFKA_BROKER)"
+            - --mode
+            - spec
+            - --model-dir
+            - "$(PAD_MODEL_DIR)"
+            - --data-dir
+            - "$(PAD_DATA_DIR)"
+            - --latency-port
+            - "$(PAD_LATENCY_PORT)"
+            - --device-id
+            - "pad-onap-prod"
 
           ports:
             - name: metrics
               containerPort: 9292
+              protocol: TCP
+            - name: health
+              containerPort: 9293
               protocol: TCP
 
           envFrom:
@@ -159,24 +192,32 @@ spec:
 
           volumeMounts:
             - name: models
-              mountPath: /app/models_v2
+              mountPath: /app/pad_onap_v3/models
             - name: data
-              mountPath: /app/data
+              mountPath: /app/pad_onap_v3/processed
 
+          # The orchestrator exposes Prometheus on :9292/metrics — we treat
+          # successful HTTP response there as a liveness signal. The minimal
+          # health side-car (port 9293) is provided by health_endpoint.py
+          # (started by the orchestrator entrypoint) and serves /healthz and
+          # /readyz JSON probes.
           livenessProbe:
             httpGet:
               path:   /healthz
-              port:   9292
-            initialDelaySeconds: 30
+              port:   health
+            initialDelaySeconds: 45
             periodSeconds:       15
+            timeoutSeconds:      5
             failureThreshold:    3
 
           readinessProbe:
             httpGet:
               path:   /readyz
-              port:   9292
-            initialDelaySeconds: 15
+              port:   health
+            initialDelaySeconds: 20
             periodSeconds:       10
+            timeoutSeconds:      5
+            failureThreshold:    3
 
       volumes:
         - name: models
@@ -186,7 +227,7 @@ spec:
           emptyDir: {}
 
 ---
-# ── Service: expose Prometheus metrics ────────────────────────
+# ── Service: expose Prometheus metrics + health probes ────────
 apiVersion: v1
 kind: Service
 metadata:
@@ -201,6 +242,9 @@ spec:
     - name: metrics
       port: 9292
       targetPort: 9292
+    - name: health
+      port: 9293
+      targetPort: 9293
   type: ClusterIP
 
 ---

@@ -45,10 +45,13 @@ import numpy as np
 # Spec §4.2 / §4.6 — 12-class taxonomy
 # ─────────────────────────────────────────────────────────────────────────────
 
+# 5-class P3 hybrid taxonomy (see pipeline/s3_ai/ai_output.py for rationale).
 CICDDOS_CLASS_NAMES = [
-    'BENIGN', 'DrDoS_DNS', 'DrDoS_LDAP', 'DrDoS_MSSQL', 'DrDoS_NetBIOS',
-    'DrDoS_NTP', 'DrDoS_SNMP', 'DrDoS_SSDP', 'DrDoS_UDP',
-    'Syn', 'UDP-lag', 'WebDDoS',
+    'BENIGN',           # 0
+    'Amplification',    # 1 — DrDoS_DNS/LDAP/MSSQL/NetBIOS/NTP/SNMP/SSDP/UDP
+    'Syn',              # 2
+    'UDP-lag',          # 3
+    'WebDDoS',          # 4
 ]
 
 # Spec §4.3 / §5.3 — operating thresholds + lead-time targets per tier

@@ -153,26 +153,55 @@ def check_sdnr(host):
     except Exception as e:
         return True, f"SDNR unreachable (non-critical): {e}"
 
-@check("PAD-ONAP models — XGBoost model file")
+@check("PAD-ONAP models — Track A (XGBoost) + Track B (LSTM/Transformer) artefacts")
 def check_models():
-    model_dir = os.environ.get("PAD_MODEL_DIR", "models_v2")
-    xgb = os.path.join(model_dir, "xgboost_7class.json")
-    lstm = os.path.join(model_dir, "transformer_lstm.pt")
-    missing = []
-    if not os.path.exists(xgb):
-        missing.append("xgboost_7class.json")
-    if not os.path.exists(lstm):
-        missing.append("transformer_lstm.pt")
-    if missing:
-        return False, f"Missing: {missing}"
-    return True, "XGBoost + Transformer+LSTM found"
+    model_dir = os.environ.get("PAD_MODEL_DIR", "pad_onap_v3/models")
 
-@check("PAD-ONAP environment — PAD_ONAP_STUB=false")
+    # Track A — accept either spec-mode artefact or legacy v3 artefact
+    xgb_candidates = [
+        "xgboost_track_a.json",     # spec mode (Phase 1 trainer output)
+        "xgboost_v3.json",          # legacy v3 (still loadable in legacy mode)
+        "xgboost_7class_v2.json",   # legacy v2 (fallback)
+    ]
+    # Track B — accept stacked-LSTM or transformer artefact
+    lstm_candidates = [
+        "lstm_track_b.pt",          # spec mode
+        "transformer_v3.pt",        # legacy v3
+        "transformer_lstm_v2.pth",  # legacy v2
+    ]
+    # Scaler (Track A) — required by the inference engine
+    scaler_candidates = [
+        "scaler_track_a.pkl",       # spec mode
+        "scaler.pkl",               # legacy fallback
+    ]
+
+    found_xgb    = next((c for c in xgb_candidates   if os.path.exists(os.path.join(model_dir, c))), None)
+    found_lstm   = next((c for c in lstm_candidates  if os.path.exists(os.path.join(model_dir, c))), None)
+    found_scaler = next((c for c in scaler_candidates if os.path.exists(os.path.join(model_dir, c))), None)
+
+    missing = []
+    if found_xgb    is None: missing.append(f"XGBoost ({'/'.join(xgb_candidates)})")
+    if found_lstm   is None: missing.append(f"LSTM/Transformer ({'/'.join(lstm_candidates)})")
+    if found_scaler is None: missing.append(f"Scaler ({'/'.join(scaler_candidates)})")
+    if missing:
+        return False, f"Missing in {model_dir}: {missing}"
+    return True, f"xgb={found_xgb}  lstm={found_lstm}  scaler={found_scaler}"
+
+
+@check("PAD-ONAP environment — deploy mode")
 def check_stub_flag():
-    val = os.environ.get("PAD_ONAP_STUB", "true")
-    if val.lower() == "false":
-        return True, "PAD_ONAP_STUB=false (real mode)"
-    return False, f"PAD_ONAP_STUB={val} (still stub mode)"
+    # New canonical env: PAD_DEPLOY_MODE = stub | helm | onap
+    mode = os.environ.get("PAD_DEPLOY_MODE", "").lower()
+    if mode in ("onap", "helm"):
+        return True, f"PAD_DEPLOY_MODE={mode} (real orchestration path)"
+    if mode == "stub":
+        return False, "PAD_DEPLOY_MODE=stub (CNF lifecycle will not hit ONAP)"
+    # Fallback to legacy flag
+    legacy = os.environ.get("PAD_ONAP_STUB", "true").lower()
+    if legacy == "false":
+        return True, "PAD_ONAP_STUB=false (legacy real-mode flag honoured)"
+    return False, ("Neither PAD_DEPLOY_MODE nor PAD_ONAP_STUB are set "
+                   "for real-mode operation")
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────

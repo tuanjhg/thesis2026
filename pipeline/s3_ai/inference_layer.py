@@ -99,22 +99,37 @@ TRACK_B_FEATURES: list[str] = [
 N_TRACK_B_FEATURES = 6
 TRACK_B_LOOK_BACK   = 60   # 60 one-minute timesteps
 
-# Spec §4.2 — 12-class CICDDoS2019 taxonomy
+# Spec §4.2 (P3 hybrid) — 5-class CICDDoS2019 taxonomy.
+# Rationale (see notebooks/_patch_v4_5class.py): the 8 reflection sub-types
+# in the original 12-class IJSRA-2021 schema all map to the same CNF
+# mitigation profile (`cnf-scrubber-reflection`), so collapsing them into a
+# single "Amplification" macro-class preserves operational semantics while
+# rebalancing the softmax target.
 CICDDOS_CLASSES: dict[int, str] = {
-    0:  'BENIGN',
-    1:  'DrDoS_DNS',
-    2:  'DrDoS_LDAP',
-    3:  'DrDoS_MSSQL',
-    4:  'DrDoS_NetBIOS',
-    5:  'DrDoS_NTP',
-    6:  'DrDoS_SNMP',
-    7:  'DrDoS_SSDP',
-    8:  'DrDoS_UDP',
-    9:  'Syn',
-    10: 'UDP-lag',
-    11: 'WebDDoS',
+    0: 'BENIGN',
+    1: 'Amplification',     # DrDoS_DNS / LDAP / MSSQL / NetBIOS / NTP / SNMP / SSDP / UDP
+    2: 'Syn',
+    3: 'UDP-lag',
+    4: 'WebDDoS',
 }
-N_CICDDOS_CLASSES = 12
+N_CICDDOS_CLASSES = 5
+
+# Legacy 12-class identifiers retained for backwards-compatibility with the
+# v1/v2/v3 model artefacts (xgb_label_map.json may still reference these).
+LEGACY_12CLASS_TO_5CLASS: dict[int, int] = {
+    0:  0,    # BENIGN
+    1:  1,    # DrDoS_DNS       → Amplification
+    2:  1,    # DrDoS_LDAP      → Amplification
+    3:  1,    # DrDoS_MSSQL     → Amplification
+    4:  1,    # DrDoS_NetBIOS   → Amplification
+    5:  1,    # DrDoS_NTP       → Amplification
+    6:  1,    # DrDoS_SNMP      → Amplification
+    7:  1,    # DrDoS_SSDP      → Amplification
+    8:  1,    # DrDoS_UDP       → Amplification
+    9:  2,    # Syn
+    10: 3,    # UDP-lag
+    11: 4,    # WebDDoS
+}
 
 # Spec §4.3 — horizons in minutes
 HORIZONS_MIN: tuple[int, ...] = (1, 5, 15)
@@ -732,53 +747,57 @@ class InferenceEngine:
 
     def _remap_to_12class(self, probs_remapped: np.ndarray) -> np.ndarray:
         """
-        Map model output to the canonical 12-class CICDDoS taxonomy.
+        Map model output to the canonical 5-class P3 hybrid taxonomy.
+        (Name kept as `_remap_to_12class` for backwards compatibility with any
+        external caller; the return shape is now N_CICDDOS_CLASSES=5.)
 
-        spec mode    : assumed 12-way already (or remapped via xgb_label_map.json)
-        legacy mode  : redistribute the 7 legacy class probabilities into the
-                       12 CICDDoS slots so downstream consumers see a well-formed
-                       12-vector.  Mapping (legacy → canonical):
-                         Normal        → BENIGN          (0)
-                         UDP_Flood     → DrDoS_UDP       (8)
-                         SYN_Flood     → Syn             (9)
-                         HTTP_Flood    → WebDDoS         (11)
-                         ICMP_Flood    → spread across DrDoS_DNS..SNMP (1-6) — n/a; → 0
-                         Amplification → spread evenly across DrDoS_DNS..SSDP (1-7)
-                         Slow_rate     → WebDDoS         (11)
-                       This is provisional: Phase 1 retrain replaces it cleanly.
+        spec mode (P3, 5-class native):
+          The booster already emits a 5-vector; `idx_to_label` is the identity
+          map from `xgb_label_map.json`, so we simply scatter into `out`.
+
+        spec mode (legacy 12-class booster on disk):
+          If the loaded model still has `n_classes=12` (e.g. an earlier v3
+          training run), each old class index is folded into its 5-class
+          parent through `LEGACY_12CLASS_TO_5CLASS`.
+
+        legacy mode (7-class booster on disk):
+          Provisional bridge from the v2 7-class schema
+          [Normal, UDP_Flood, SYN_Flood, HTTP_Flood, ICMP_Flood, Amplification, Slow_rate]
+          into the 5-class P3 space.  Mapping:
+            Normal        → BENIGN          (0)
+            UDP_Flood     → Amplification   (1)  (UDP-based reflection-like)
+            SYN_Flood     → Syn             (2)
+            HTTP_Flood    → WebDDoS         (4)
+            ICMP_Flood    → UDP-lag         (3)  (closest exploitation proxy)
+            Amplification → Amplification   (1)
+            Slow_rate     → WebDDoS         (4)
         """
         out = np.zeros(N_CICDDOS_CLASSES, dtype=np.float32)
 
         if self.mode == 'spec':
             n = len(probs_remapped)
             for remapped_idx, orig in self.idx_to_label.items():
-                if 0 <= int(orig) < N_CICDDOS_CLASSES and remapped_idx < n:
-                    out[int(orig)] = float(probs_remapped[remapped_idx])
+                p = float(probs_remapped[remapped_idx]) if remapped_idx < n else 0.0
+                orig = int(orig)
+                if 0 <= orig < N_CICDDOS_CLASSES:
+                    # Native 5-class output — direct scatter
+                    out[orig] += p
+                elif orig in LEGACY_12CLASS_TO_5CLASS:
+                    # 12-class model loaded under spec mode — fold into 5-class
+                    out[LEGACY_12CLASS_TO_5CLASS[orig]] += p
             s = out.sum()
             return out / s if s > 0 else out
 
-        # Legacy 7-class → 12-class redistribution (provisional bridge)
-        # Reorder probs into the canonical 7-tuple [Normal, UDP, SYN, HTTP, ICMP, Amp, Slow]
+        # ── Legacy 7-class booster → 5-class P3 (provisional bridge) ──────
         legacy_7 = np.zeros(7, dtype=np.float32)
         for remapped_idx, orig in self.idx_to_label.items():
             if 0 <= int(orig) < 7 and remapped_idx < len(probs_remapped):
                 legacy_7[int(orig)] = float(probs_remapped[remapped_idx])
-
-        # Distribute amplification across reflection-DDoS classes (1..7)
-        amp_share = legacy_7[5] / 7.0
-        out[0]  = legacy_7[0]                        # BENIGN
-        out[1]  = amp_share                          # DrDoS_DNS
-        out[2]  = amp_share                          # DrDoS_LDAP
-        out[3]  = amp_share                          # DrDoS_MSSQL
-        out[4]  = amp_share                          # DrDoS_NetBIOS
-        out[5]  = amp_share                          # DrDoS_NTP
-        out[6]  = amp_share                          # DrDoS_SNMP
-        out[7]  = amp_share                          # DrDoS_SSDP
-        out[8]  = legacy_7[1]                        # DrDoS_UDP    ← UDP_Flood
-        out[9]  = legacy_7[2]                        # Syn          ← SYN_Flood
-        out[10] = legacy_7[4]                        # UDP-lag      ← ICMP_Flood (proxy)
-        out[11] = legacy_7[3] + legacy_7[6]          # WebDDoS      ← HTTP_Flood + Slow_rate
-
+        out[0] = legacy_7[0]                                  # BENIGN
+        out[1] = legacy_7[1] + legacy_7[5]                    # Amplification ← UDP_Flood + Amplification
+        out[2] = legacy_7[2]                                  # Syn           ← SYN_Flood
+        out[3] = legacy_7[4]                                  # UDP-lag       ← ICMP_Flood (proxy)
+        out[4] = legacy_7[3] + legacy_7[6]                    # WebDDoS       ← HTTP_Flood + Slow_rate
         s = out.sum()
         return out / s if s > 0 else out
 
@@ -1082,28 +1101,29 @@ class _StackedLSTMForecaster(torch.nn.Module):
 
     Input  : (batch, 60, 6)
     Output : (batch, 3) raw logits → sigmoid at inference
+
+    The state_dict key layout intentionally matches the `LSTMForecaster`
+    class in `notebooks/ddos-train-v4.ipynb` (lstm1/lstm2/lstm3 + a single
+    `dropout` module + fc1/fc2) so that the notebook's `lstm_track_b.pt`
+    checkpoint loads here with `strict=True`.
     """
     def __init__(self, input_dim=6, hidden_l1=100, hidden_l2=100,
                  hidden_l3=50, fc_hidden=25, n_horizons=3, dropout=0.2):
         super().__init__()
-        self.lstm1 = torch.nn.LSTM(input_dim, hidden_l1,  batch_first=True)
-        self.drop1 = torch.nn.Dropout(dropout)
-        self.lstm2 = torch.nn.LSTM(hidden_l1, hidden_l2,  batch_first=True)
-        self.drop2 = torch.nn.Dropout(dropout)
-        self.lstm3 = torch.nn.LSTM(hidden_l2, hidden_l3,  batch_first=True)
-        self.drop3 = torch.nn.Dropout(dropout)
-        self.fc    = torch.nn.Sequential(
-            torch.nn.Linear(hidden_l3, fc_hidden),
-            torch.nn.ReLU(),
-            torch.nn.Linear(fc_hidden, n_horizons),
-        )
+        self.lstm1   = torch.nn.LSTM(input_dim, hidden_l1, batch_first=True)
+        self.lstm2   = torch.nn.LSTM(hidden_l1, hidden_l2, batch_first=True)
+        self.lstm3   = torch.nn.LSTM(hidden_l2, hidden_l3, batch_first=True)
+        self.dropout = torch.nn.Dropout(dropout)
+        self.fc1     = torch.nn.Linear(hidden_l3, fc_hidden)
+        self.fc2     = torch.nn.Linear(fc_hidden, n_horizons)
 
     def forward(self, x):
-        h, _ = self.lstm1(x); h = torch.tanh(h); h = self.drop1(h)
-        h, _ = self.lstm2(h); h = torch.tanh(h); h = self.drop2(h)
-        h, _ = self.lstm3(h); h = torch.tanh(h); h = self.drop3(h)
-        h_last = h[:, -1, :]
-        return self.fc(h_last)
+        h, _ = self.lstm1(x); h = self.dropout(h)
+        h, _ = self.lstm2(h); h = self.dropout(h)
+        h, _ = self.lstm3(h)
+        h = self.dropout(h[:, -1, :])
+        h = torch.relu(self.fc1(h))
+        return self.fc2(h)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

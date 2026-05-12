@@ -45,6 +45,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import signal
 import sys
 import time
@@ -72,6 +73,7 @@ from pipeline.s4_orchestration.clamp_simulator import CLAMPClient
 from pipeline.s4_orchestration.onap_so_client  import ONAPSOClient
 from pipeline.s4_orchestration.sfc_manager     import SFCManager
 from pipeline.s4_orchestration.latency_tracker import LatencyTracker, LatencyRecord
+from pipeline.s4_orchestration import health_endpoint
 
 logging.basicConfig(
     level=logging.INFO,
@@ -153,14 +155,37 @@ class Orchestrator:
         self.tracker = LatencyTracker()
         self.tracker.start_server(port=latency_port)
 
+        # K8s liveness/readiness side-car
+        health_port = int(os.environ.get('PAD_HEALTH_PORT', '9293'))
+        health_endpoint.start(port=health_port)
+        health_endpoint.register_snapshot_provider(self._health_snapshot)
+
         # Per-device active CNF instance
         self._active_instance: dict[str, str] = {}
         self._window_count = 0
 
         logger.info(
             f'Orchestrator ready  mode={mode}  deploy={self.so.deploy_mode}  '
-            f'tenants={len(self.tenants)}'
+            f'tenants={len(self.tenants)}  health=:{health_port}'
         )
+
+    def _health_snapshot(self) -> dict:
+        """Snapshot used by /readyz to expose live metrics."""
+        snap: dict = {
+            'mode':              self.mode,
+            'deploy_mode':       self.so.deploy_mode,
+            'windows_processed': self._window_count,
+            'active_cnfs':       len(self._active_instance),
+        }
+        try:
+            snap['latency'] = self.tracker.summary()
+        except Exception:
+            pass
+        try:
+            snap['nfv'] = self.so.metrics.summary()
+        except Exception:
+            pass
+        return snap
 
     # ── Live loop ───────────────────────────────────────────────────────────
 
@@ -571,6 +596,7 @@ class Orchestrator:
 
         rec.finalize()
         self.tracker.record(rec)
+        health_endpoint.heartbeat()
 
         # ── Console log ───────────────────────────────────────────────────
         marker = ''
