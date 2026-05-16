@@ -45,7 +45,7 @@ def build_pad_topology(use_remote_ctrl=False):
     info('*** Building PAD-ONAP topology\n')
 
     net = Mininet(
-        controller=RemoteController if use_remote_ctrl else Controller,
+        controller=RemoteController if use_remote_ctrl else None,
         switch=OVSSwitch,
         link=TCLink,
         autoSetMacs=True,
@@ -56,14 +56,16 @@ def build_pad_topology(use_remote_ctrl=False):
     if use_remote_ctrl:
         c0 = net.addController('c0', ip='127.0.0.1', port=6633)
         info('*** Using remote controller at 127.0.0.1:6633\n')
+        switch_opts = {'protocols': 'OpenFlow13'}
     else:
-        c0 = net.addController('c0')
-        info('*** Using built-in controller\n')
+        c0 = None
+        info('*** Using OVS standalone bridge mode\n')
+        switch_opts = {'protocols': 'OpenFlow13', 'failMode': 'standalone'}
 
     # ── Core Switches / Routers ───────────────────────────────────────────────
-    r1 = net.addSwitch('r1', protocols='OpenFlow13')  # eMBB + URLLC ingress
-    r2 = net.addSwitch('r2', protocols='OpenFlow13')  # egress to tenant hosts
-    r3 = net.addSwitch('r3', protocols='OpenFlow13')  # mMTC aggregation
+    r1 = net.addSwitch('r1', **switch_opts)  # eMBB + URLLC ingress
+    r2 = net.addSwitch('r2', **switch_opts)  # egress to tenant hosts
+    r3 = net.addSwitch('r3', **switch_opts)  # mMTC aggregation
 
     # ── eMBB Slice Hosts ──────────────────────────────────────────────────────
     embb_src = net.addHost('embb_src', ip='10.1.0.1/24', defaultRoute='via 10.1.0.254')
@@ -107,8 +109,10 @@ def build_pad_topology(use_remote_ctrl=False):
     net.addLink(r1, r3, bw=100, delay='1ms', loss=0)
 
     # ── VNF scrubber + isolation pre-wired to r2 (activated by S5 enforcer) ──
-    net.addLink(vnf_scrubber,  r2, bw=EMBB_BW_MBPS,  delay='0.5ms', loss=0)
-    net.addLink(vnf_isolation, r2, bw=URLLC_BW_MBPS, delay='0.5ms', loss=0)
+    # Linux interface names are limited to 15 characters. Explicit short names
+    # keep long VNF host names usable inside WSL/Mininet.
+    net.addLink(vnf_scrubber,  r2, intfName1='vscrub-eth0', bw=EMBB_BW_MBPS,  delay='0.5ms', loss=0)
+    net.addLink(vnf_isolation, r2, intfName1='viso-eth0',   bw=URLLC_BW_MBPS, delay='0.5ms', loss=0)
 
     return net
 

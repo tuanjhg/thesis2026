@@ -111,18 +111,27 @@ start_component "kafka_producer" \
 
 sleep 2   # give producer a moment before flink connects
 
+# Two-track Flink processor (v3 schema):
+#   --flow-window/-slide  → telemetry.features.flow   (Track A 22-dim, 5s sliding)
+#   --ts-window           → telemetry.features.timeseries (Track B 6-dim, 60s tumbling)
 start_component "flink_processor" \
     "-u ${PROJECT_ROOT}/pipeline/s2_features/flink_processor.py \
      --broker ${BROKER} \
-     --window 5.0 \
-     --slide 1.0"
+     --flow-window 5.0 \
+     --flow-slide  1.0 \
+     --ts-window   60.0"
 
 sleep 2
 
+# Two-track inference engine (Kafka mode). Mode `spec` activates native 22+6
+# CICDDoS / 12-class operation; switch to `legacy` only if running with the
+# bridged 17-feature / 7-class artefacts.
+PAD_MODE="${PAD_INFERENCE_MODE:-spec}"
 start_component "live_pipeline" \
     "-u ${PROJECT_ROOT}/pipeline/s3_ai/live_pipeline.py \
      --source kafka \
      --broker ${BROKER} \
+     --mode ${PAD_MODE} \
      --model-dir ${MODEL_DIR} \
      --data-dir  ${DATA_DIR} \
      --out       ${LOG_DIR}/inference_output.jsonl"

@@ -98,8 +98,8 @@ def spawn_flink_processor(broker: str, log_path: Path) -> subprocess.Popen:
     cmd = [
         sys.executable, '-u', str(script),
         '--broker', broker,
-        '--window', '5.0',
-        '--slide',  '1.0',
+        '--flow-window', '5.0',
+        '--flow-slide',  '1.0',
     ]
     logger.info(f"*** Khởi động Flink processor: {' '.join(cmd)}")
     log_f = open(log_path, 'a')
@@ -302,12 +302,13 @@ class E2EEvaluator:
             )
 
         # 6. Background traffic + legit user + victim server
-        bg_src = net.get('h1');  bg_dst = net.get('h14')
+        bg_src = net.get('h1') if len(net.hosts) > 1 else attacker
+        bg_dst = net.get('h14') if 'h14' in net.nameToNode else victim
         bg_dst.cmd('iperf -s -u -i 1 > /tmp/iperf_bg.log 2>&1 &')
         time.sleep(0.5)
         bg_src.cmd(f'iperf -c {bg_dst.IP()} -u -b 10M -t 9999 -i 1 > {self.log_bg} 2>&1 &')
 
-        legit_src = net.get('h2')
+        legit_src = net.get('h2') if 'h2' in net.nameToNode else bg_src
         victim.cmd("fuser -k 5001/udp 2>/dev/null"); time.sleep(0.5)
         victim.cmd(f'iperf -s -u -i 1 > {self.log_victim} 2>&1 &')
         legit_src.cmd(
@@ -527,7 +528,7 @@ class E2EEvaluator:
             'iperf': {
                 'legit_h2_to_victim': legit_series,
                 'victim_received':    victim_series,
-                'background_h1_h14':  bg_series,
+                'background_traffic': bg_series,
             },
             'metrics': metrics,
         }

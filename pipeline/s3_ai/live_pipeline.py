@@ -408,6 +408,14 @@ class KafkaFeatureConsumer:
 # Entry point
 # ─────────────────────────────────────────────────────────────────────────────
 
+def features_dict_to_array(features: dict) -> np.ndarray:
+    """Convert a Track-A feature dict into the 22-dimensional model vector."""
+    return np.array(
+        [float(features.get(name, 0.0)) for name in TRACK_A_FEATURES],
+        dtype=np.float32,
+    )
+
+
 def main():
     _root = Path(__file__).resolve().parent.parent.parent
     parser = argparse.ArgumentParser(

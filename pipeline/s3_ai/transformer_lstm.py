@@ -16,7 +16,22 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
-from torch.amp import GradScaler, autocast
+try:
+    from torch.amp import GradScaler as _TorchGradScaler, autocast as _torch_autocast
+
+    def GradScaler(device_type='cuda', **kwargs):
+        return _TorchGradScaler(device_type, **kwargs)
+
+    def autocast(device_type='cuda', **kwargs):
+        return _torch_autocast(device_type, **kwargs)
+except ImportError:
+    from torch.cuda.amp import GradScaler as _CudaGradScaler, autocast as _cuda_autocast
+
+    def GradScaler(device_type='cuda', **kwargs):
+        return _CudaGradScaler(**kwargs)
+
+    def autocast(device_type='cuda', **kwargs):
+        return _cuda_autocast(**kwargs)
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
@@ -79,12 +94,23 @@ class TransformerLSTMForecaster(nn.Module):
         # Sinusoidal positional encoding
         self.pos_enc = SinusoidalPE(hidden_dim)
 
-        # Transformer Encoder
-        enc_layer = nn.TransformerEncoderLayer(
-            d_model=hidden_dim, nhead=num_heads,
-            dim_feedforward=hidden_dim * 4,
-            dropout=dropout, batch_first=True, activation='gelu',
-        )
+        # Transformer Encoder. Torch 1.8 (Ubuntu apt) does not support
+        # batch_first on TransformerEncoderLayer, so keep a small compatibility
+        # path for WSL smoke tests while preserving the newer API when present.
+        self._transformer_batch_first = True
+        try:
+            enc_layer = nn.TransformerEncoderLayer(
+                d_model=hidden_dim, nhead=num_heads,
+                dim_feedforward=hidden_dim * 4,
+                dropout=dropout, batch_first=True, activation='gelu',
+            )
+        except TypeError:
+            self._transformer_batch_first = False
+            enc_layer = nn.TransformerEncoderLayer(
+                d_model=hidden_dim, nhead=num_heads,
+                dim_feedforward=hidden_dim * 4,
+                dropout=dropout, activation='gelu',
+            )
         self.transformer = nn.TransformerEncoder(
             enc_layer, num_layers=num_layers,
             norm=nn.LayerNorm(hidden_dim),
@@ -119,7 +145,10 @@ class TransformerLSTMForecaster(nn.Module):
         h = self.pos_enc(self.input_proj(x))   # (B, 12, hidden_dim)
 
         # Transformer encoding
-        h = self.transformer(h)                 # (B, 12, hidden_dim)
+        if self._transformer_batch_first:
+            h = self.transformer(h)             # (B, 12, hidden_dim)
+        else:
+            h = self.transformer(h.transpose(0, 1)).transpose(0, 1)
 
         # LSTM forecasting
         h, _ = self.lstm(h)                     # (B, 12, lstm_hidden)
