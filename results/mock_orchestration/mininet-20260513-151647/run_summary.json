@@ -1,0 +1,23 @@
+{
+  "run_id": "mininet-20260513-151647",
+  "result_type": "simulated_testbed_result",
+  "mode": "mininet_test_runner",
+  "timestamp_utc": "2026-05-13T15:44:01Z",
+  "log_dir": "/tmp/src2/results/mock_orchestration/mininet-20260513-151647",
+  "logs": [
+    "basic_udp_attack.log",
+    "docker_kafka_up.log",
+    "e2e_ai.log",
+    "e2e_baseline.log",
+    "fat_tree_k2_smoke.log",
+    "mn_cleanup_final.log",
+    "mn_cleanup_initial.log",
+    "mn_pingall_sanity.log",
+    "ovs_start.log",
+    "pad_3slice_topology.log"
+  ],
+  "notes": [
+    "Local WSL/Mininet smoke and attack tests only.",
+    "These are not real ONAP/Kubernetes execution results."
+  ]
+}

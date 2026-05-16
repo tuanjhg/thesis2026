@@ -1,0 +1,70 @@
+{
+  "run_id": "mininet-20260513-154521-basic-udp",
+  "result_type": "simulated_testbed_result",
+  "mode": "mininet_basic_udp_attack",
+  "timestamp_utc": "2026-05-13T15:48:12Z",
+  "topology": {
+    "hosts": [
+      "attacker",
+      "victim"
+    ],
+    "switches": [
+      "s1"
+    ],
+    "link_bandwidth_mbps": 100,
+    "link_delay": "2ms"
+  },
+  "attack": {
+    "tool": "hping3",
+    "traffic": "udp_flood",
+    "attacker": "attacker",
+    "victim": "victim",
+    "duration_s": 5
+  },
+  "measurements": {
+    "pingall_loss_pct": 0.0,
+    "baseline_ping": {
+      "loss_pct": 0.0,
+      "rtt": {
+        "min_ms": 8.137,
+        "avg_ms": 8.165,
+        "max_ms": 8.189,
+        "mdev_ms": 0.017
+      },
+      "raw": "PING 10.0.0.2 (10.0.0.2) 56(84) bytes of data.\r\n64 bytes from 10.0.0.2: icmp_seq=1 ttl=64 time=8.19 ms\r\n64 bytes from 10.0.0.2: icmp_seq=2 ttl=64 time=8.17 ms\r\n64 bytes from 10.0.0.2: icmp_seq=3 ttl=64 time=8.17 ms\r\n64 bytes from 10.0.0.2: icmp_seq=4 ttl=64 time=8.16 ms\r\n64 bytes from 10.0.0.2: icmp_seq=5 ttl=64 time=8.14 ms\r\n\r\n--- 10.0.0.2 ping statistics ---\r\n5 packets transmitted, 5 received, 0% packet loss, time 871ms\r\nrtt min/avg/max/mdev = 8.137/8.165/8.189/0.017 ms"
+    },
+    "baseline_iperf3": {
+      "bandwidth_mbps": 93.885,
+      "retransmits": 0
+    },
+    "during_attack_ping": {
+      "loss_pct": 0.0,
+      "rtt": {
+        "min_ms": 8.087,
+        "avg_ms": 8.13,
+        "max_ms": 8.199,
+        "mdev_ms": 0.047
+      },
+      "raw": "PING 10.0.0.2 (10.0.0.2) 56(84) bytes of data.\r\n64 bytes from 10.0.0.2: icmp_seq=1 ttl=64 time=8.10 ms\r\n64 bytes from 10.0.0.2: icmp_seq=2 ttl=64 time=8.17 ms\r\n64 bytes from 10.0.0.2: icmp_seq=3 ttl=64 time=8.20 ms\r\n64 bytes from 10.0.0.2: icmp_seq=4 ttl=64 time=8.09 ms\r\n64 bytes from 10.0.0.2: icmp_seq=5 ttl=64 time=8.09 ms\r\n\r\n--- 10.0.0.2 ping statistics ---\r\n5 packets transmitted, 5 received, 0% packet loss, time 835ms\r\nrtt min/avg/max/mdev = 8.087/8.130/8.199/0.047 ms"
+    },
+    "attack_process_runtime_s": 3.08,
+    "post_attack_ping": {
+      "loss_pct": 0.0,
+      "rtt": {
+        "min_ms": 8.226,
+        "avg_ms": 8.261,
+        "max_ms": 8.316,
+        "mdev_ms": 0.031
+      },
+      "raw": "PING 10.0.0.2 (10.0.0.2) 56(84) bytes of data.\r\n64 bytes from 10.0.0.2: icmp_seq=1 ttl=64 time=8.23 ms\r\n64 bytes from 10.0.0.2: icmp_seq=2 ttl=64 time=8.32 ms\r\n64 bytes from 10.0.0.2: icmp_seq=3 ttl=64 time=8.27 ms\r\n64 bytes from 10.0.0.2: icmp_seq=4 ttl=64 time=8.24 ms\r\n64 bytes from 10.0.0.2: icmp_seq=5 ttl=64 time=8.25 ms\r\n\r\n--- 10.0.0.2 ping statistics ---\r\n5 packets transmitted, 5 received, 0% packet loss, time 803ms\r\nrtt min/avg/max/mdev = 8.226/8.261/8.316/0.031 ms"
+    },
+    "post_attack_iperf3": {
+      "bandwidth_mbps": 93.734,
+      "retransmits": 0
+    }
+  },
+  "notes": [
+    "Mininet emulation only; this is not real ONAP/Kubernetes execution.",
+    "No ML model was trained or evaluated by this scenario."
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "run_id": "mininet-20260513-150641-basic-udp",
+  "timestamp_utc": "2026-05-13T15:09:32Z",
+  "mode": "mininet_basic_udp_attack",
+  "git_commit": "unknown",
+  "source_file": "results/mock_orchestration/mininet-20260513-150641-basic-udp/summary.json",
+  "notes": "Simulated Mininet UDP-flood testbed result; not real ONAP/K8s."
+}
