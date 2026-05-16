@@ -126,7 +126,15 @@ def stop_subprocess(proc: subprocess.Popen, name: str) -> None:
 # ── Orchestrator factory ──────────────────────────────────────────────────────
 
 def make_orchestrator(mode: str, args):
-    """Return the chosen orchestrator instance. AI uses real s3_ai inference."""
+    """Return the chosen orchestrator instance. AI uses real s3_ai inference.
+
+    Returns None when args.remote_pipeline is set — the remote pad-onap-pipeline
+    Pod owns inference + tier decision; this driver only generates traffic and
+    polls remote metrics post-run.
+    """
+    if getattr(args, 'remote_pipeline', False):
+        logger.info("*** remote-pipeline mode: skip local Orchestrator/Baseline construction")
+        return None
     if mode == 'ai':
         from pipeline.s4_orchestration.orchestrator import Orchestrator
         return Orchestrator(
@@ -144,6 +152,110 @@ def make_orchestrator(mode: str, args):
         )
     else:
         raise ValueError(f"Unknown mode: {mode}")
+
+
+# ── Remote tier poller ────────────────────────────────────────────────────────
+# When --remote-pipeline is set, this driver does NOT run the orchestrator
+# locally. Instead, it polls the remote pad-onap-pipeline Pod's Prometheus
+# endpoint (exposed via NodePort 30292 in onap/k8s/pad-onap-metrics-nodeport.yaml)
+# to recover the tier time series after the run completes. Schema:
+#   pad_current_tier{device="pad-onap-prod"}       gauge
+#   pad_proactive_action_total{tier="2|3|4"}       counter
+# If those metrics are missing on the remote Pod, the poller falls back to
+# scraping `pad_tier_decisions_total{tier="..."}` deltas to reconstruct the
+# tier history (1-Hz resolution).
+
+class RemoteTierPoller:
+    """Sample the remote pipeline Pod's Prometheus endpoint at 1 Hz."""
+
+    def __init__(self, metrics_url: str, interval: float = 1.0):
+        self.metrics_url = metrics_url.rstrip('/')
+        self.interval = interval
+        self._stop = threading.Event()
+        self._thread: threading.Thread = None
+        self.samples: list = []  # list of (epoch, tier_int)
+        self._lock = threading.Lock()
+        # Cache previous counter values for delta-based fallback
+        self._prev_counters: dict = {}
+
+    def _parse_metric(self, body: str, name: str) -> dict:
+        """Parse Prometheus exposition format for a single metric.
+        Returns {label_dict_str: float_value}."""
+        out = {}
+        for line in body.splitlines():
+            if not line or line.startswith('#'):
+                continue
+            if not line.startswith(name):
+                continue
+            # name{labels} value   OR   name value
+            try:
+                head, _, val = line.rpartition(' ')
+                v = float(val)
+                if '{' in head:
+                    lbl = head.split('{', 1)[1].rstrip('}')
+                else:
+                    lbl = ''
+                out[lbl] = v
+            except Exception:
+                continue
+        return out
+
+    def _sample_once(self) -> None:
+        import urllib.request
+        try:
+            with urllib.request.urlopen(self.metrics_url, timeout=2) as r:
+                body = r.read().decode('utf-8', errors='ignore')
+        except Exception as e:
+            logger.debug(f"[RemoteTierPoller] fetch error: {e}")
+            return
+
+        # Try gauge first
+        gauge = self._parse_metric(body, 'pad_current_tier')
+        if gauge:
+            tier_val = int(round(next(iter(gauge.values()))))
+            with self._lock:
+                self.samples.append((time.time(), tier_val))
+            return
+
+        # Fallback: derive from counter deltas — assume highest tier with
+        # an incremented counter this tick is the "current" tier.
+        counters = self._parse_metric(body, 'pad_tier_decisions_total')
+        if not counters:
+            return
+        tier_active = 0
+        for lbl, v in counters.items():
+            prev = self._prev_counters.get(lbl, v)
+            if v > prev:
+                # Extract tier from label string like 'tier="3"'
+                if 'tier="' in lbl:
+                    try:
+                        t = int(lbl.split('tier="', 1)[1].split('"', 1)[0])
+                        tier_active = max(tier_active, t)
+                    except Exception:
+                        pass
+            self._prev_counters[lbl] = v
+        with self._lock:
+            self.samples.append((time.time(), tier_active))
+
+    def _run(self) -> None:
+        while not self._stop.is_set():
+            self._sample_once()
+            self._stop.wait(self.interval)
+
+    def start(self) -> None:
+        if self._thread and self._thread.is_alive():
+            return
+        self._thread = threading.Thread(target=self._run, daemon=True,
+                                        name='RemoteTierPoller')
+        self._thread.start()
+        logger.info(f"*** RemoteTierPoller started: {self.metrics_url} @ {self.interval}s")
+
+    def stop(self) -> list:
+        self._stop.set()
+        if self._thread:
+            self._thread.join(timeout=3)
+        with self._lock:
+            return list(self.samples)
 
 
 # ── Evaluator ─────────────────────────────────────────────────────────────────
@@ -167,11 +279,21 @@ class E2EEvaluator:
         self.kafka_consumer: KafkaFeatureConsumer = None
         self.flink_proc: subprocess.Popen = None
 
-        # The chosen orchestrator (AI or threshold baseline) — only one this run
+        # Remote-pipeline mode: pipeline + ONAP run on a remote K8s server.
+        # Local driver only generates traffic and polls remote metrics.
+        self.remote_pipeline: bool = bool(getattr(args, 'remote_pipeline', False))
+        self.remote_tier_poller: RemoteTierPoller = None
+
+        # The chosen orchestrator (AI or threshold baseline) — only one this run.
+        # Returns None when remote_pipeline is set.
         self.orch = make_orchestrator(self.mode, args)
 
     # ── Step: pull next feature vector from Kafka and feed orchestrator ────────
     def _step_from_kafka(self) -> None:
+        # In remote mode the remote Pod owns inference; this local loop
+        # is a no-op (the RemoteTierPoller collects tiers in background).
+        if self.remote_pipeline:
+            return
         if self.kafka_consumer is None:
             return
         raw = self.kafka_consumer.poll_latest()
@@ -205,26 +327,55 @@ class E2EEvaluator:
         broker      = self.args.broker
         compose_dir = _ROOT / 'testbed'
 
-        # 0. Ensure Kafka is up
-        ensure_kafka(broker, compose_dir, skip_setup=self.args.skip_kafka_setup)
+        if self.remote_pipeline:
+            # ── Remote mode ──────────────────────────────────────────────────
+            # 0. Probe Kafka broker (must be NodePort 30992 on remote K8s node)
+            logger.info(f"*** [remote-pipeline] Probe Kafka broker {broker}")
+            from kafka import KafkaProducer
+            try:
+                p = KafkaProducer(bootstrap_servers=[broker],
+                                  request_timeout_ms=5000, max_block_ms=5000)
+                p.partitions_for('pad.telemetry.raw')
+                p.close(timeout=2)
+                logger.info(f"    ✓ Remote Kafka {broker} reachable")
+            except Exception as e:
+                logger.error(f"❌ Remote Kafka {broker} không reach được: {e}")
+                logger.error("   Kiểm tra: kubectl -n pad-onap get svc kafka-external")
+                logger.error("              kubectl -n pad-onap get pod -l app=kafka")
+                logger.error("              firewall trên server cho phép port 30992")
+                sys.exit(1)
 
-        # 1. Start flink_processor (consumes pad.telemetry.raw → publishes pad.telemetry.features)
-        flink_log = _ROOT / 'evaluation' / 'results' / f'flink_{self.mode}.log'
-        flink_log.parent.mkdir(parents=True, exist_ok=True)
-        self.flink_proc = spawn_flink_processor(broker, flink_log)
-        time.sleep(3)  # let flink connect
+            # 1. Start the remote tier poller (1 Hz)
+            self.remote_tier_poller = RemoteTierPoller(
+                metrics_url=self.args.remote_metrics_url,
+                interval=1.0,
+            )
+            self.remote_tier_poller.start()
+            # Skip local flink_processor + Kafka feature consumer entirely
+            self.flink_proc = None
+            self.kafka_consumer = None
+        else:
+            # ── Local mode (original behaviour) ──────────────────────────────
+            # 0. Ensure Kafka is up
+            ensure_kafka(broker, compose_dir, skip_setup=self.args.skip_kafka_setup)
 
-        if self.flink_proc.poll() is not None:
-            logger.error(f"❌ Flink processor exited immediately. Xem: {flink_log}")
-            sys.exit(1)
+            # 1. Start flink_processor (consumes pad.telemetry.raw → publishes pad.telemetry.features)
+            flink_log = _ROOT / 'evaluation' / 'results' / f'flink_{self.mode}.log'
+            flink_log.parent.mkdir(parents=True, exist_ok=True)
+            self.flink_proc = spawn_flink_processor(broker, flink_log)
+            time.sleep(3)  # let flink connect
 
-        # 2. Subscribe to feature topic BEFORE producers start so we don't
-        #    miss baseline-phase windows (auto_offset_reset='latest').
-        logger.info(f"*** Kết nối Kafka consumer ({broker} → pad.telemetry.features)")
-        self.kafka_consumer = KafkaFeatureConsumer(
-            broker=broker,
-            group_id=f'pad-e2e-{self.mode}-{int(time.time())}',
-        )
+            if self.flink_proc.poll() is not None:
+                logger.error(f"❌ Flink processor exited immediately. Xem: {flink_log}")
+                sys.exit(1)
+
+            # 2. Subscribe to feature topic BEFORE producers start so we don't
+            #    miss baseline-phase windows (auto_offset_reset='latest').
+            logger.info(f"*** Kết nối Kafka consumer ({broker} → pad.telemetry.features)")
+            self.kafka_consumer = KafkaFeatureConsumer(
+                broker=broker,
+                group_id=f'pad-e2e-{self.mode}-{int(time.time())}',
+            )
 
         # 3. Start Mininet
         logger.info(f"*** Khởi tạo Mininet Fat-Tree k={self.args.k}")
@@ -323,9 +474,19 @@ class E2EEvaluator:
             self._step_from_kafka()
             time.sleep(1.0)
 
-        # 8. Phase 2
-        logger.info(f">>> Phase 2: UDP Flood Attack - {self.args.duration} giây")
-        attacker.cmd(f'hping3 --udp --flood -p 80 {victim.IP()} &')
+        # 8. Phase 2 — Attack dispatched by --attack-class
+        ac = self.args.attack_class
+        ATTACK_CMDS = {
+            # UDP flood (default, legacy behaviour) — high pps generic UDP
+            'udpflood': f'hping3 --udp --flood -p 80 {victim.IP()} &',
+            # S2-Syn — TCP SYN flood at 500k pps (Pipeline.md §7.2)
+            'syn':      f'hping3 -S --flood -p 80 {victim.IP()} &',
+            # S2-UDP-lag — UDP small-payload 64B at ~200k pps (Pipeline.md §7.2)
+            'udplag':   f'hping3 --udp -i u5 -d 64 -p 80 {victim.IP()} &',
+        }
+        attack_cmd = ATTACK_CMDS[ac]
+        logger.info(f">>> Phase 2: {ac.upper()} Attack - {self.args.duration}s — {attack_cmd}")
+        attacker.cmd(attack_cmd)
         self.phase_t['attack'] = time.time()
         while time.time() - self.phase_t['attack'] < self.args.duration:
             self._step_from_kafka()
@@ -353,10 +514,26 @@ class E2EEvaluator:
         time.sleep(1.0)
         net.stop()
 
-        # 11. Stop Kafka consumer + Flink subprocess
+        # 11. Stop Kafka consumer + Flink subprocess (local mode only)
         if self.kafka_consumer:
             self.kafka_consumer.close()
-        stop_subprocess(self.flink_proc, 'flink_processor')
+        if self.flink_proc:
+            stop_subprocess(self.flink_proc, 'flink_processor')
+
+        # 12. Remote mode: drain RemoteTierPoller into results_tier/timestamps
+        if self.remote_pipeline and self.remote_tier_poller:
+            samples = self.remote_tier_poller.stop()
+            logger.info(f"*** RemoteTierPoller: {len(samples)} samples collected")
+            self.timestamps = [s[0] for s in samples]
+            self.results_tier = [s[1] for s in samples]
+            self.results_proact = [t >= 2 for t in self.results_tier]
+            if not samples:
+                logger.warning(
+                    "⚠ Không lấy được sample tier nào từ remote metrics. "
+                    "Kiểm tra:\n"
+                    f"   curl {self.args.remote_metrics_url}\n"
+                    "   phải trả về một block bắt đầu bằng 'pad_'."
+                )
 
         self.generate_report()
 
@@ -509,7 +686,9 @@ class E2EEvaluator:
         ax2.legend(loc='lower left'); ax2.grid(True, linestyle=':', alpha=0.6)
         plt.tight_layout()
 
-        img_path = out_dir / f'real_e2e_{self.mode}_{ts}.png'
+        # Include attack class in filename so 4 S2 sub-scenarios don't overwrite each other
+        ac_suffix = f'_{self.args.attack_class}' if getattr(self.args, 'attack_class', 'udpflood') != 'udpflood' else ''
+        img_path = out_dir / f'real_e2e_{self.mode}{ac_suffix}_{ts}.png'
         plt.savefig(img_path, dpi=300); plt.close(fig)
         logger.info(f"[✓] Biểu đồ: {img_path}")
 
@@ -532,7 +711,7 @@ class E2EEvaluator:
             },
             'metrics': metrics,
         }
-        json_path = out_dir / f'real_e2e_{self.mode}_{ts}.json'
+        json_path = out_dir / f'real_e2e_{self.mode}{ac_suffix}_{ts}.json'
         with open(json_path, 'w') as f:
             json.dump(report, f, indent=2)
         logger.info(f"[✓] JSON: {json_path}")
@@ -570,6 +749,23 @@ if __name__ == '__main__':
                         help='Bật SHAP (chỉ áp dụng cho --mode ai)')
     parser.add_argument('--skip-kafka-setup', action='store_true',
                         help='Bỏ qua bước kiểm tra/khởi động Kafka qua Docker Compose')
+    parser.add_argument('--remote-pipeline', action='store_true',
+                        help='Pipeline (Flink + s3_ai + Orchestrator + ONAP) chạy trên '
+                             'K8s server từ xa. Local chỉ chạy Mininet + softflowd + '
+                             'collector, đẩy telemetry lên --broker (NodePort 30992 trên '
+                             'remote). Tier decision đọc lại qua --remote-metrics-url.')
+    parser.add_argument('--remote-metrics-url',
+                        default='http://localhost:30292/metrics',
+                        help='URL Prometheus endpoint của pad-onap-pipeline Pod '
+                             '(default: http://localhost:30292/metrics — sửa thành '
+                             'http://<NODE_IP>:30292/metrics).')
+    parser.add_argument('--attack-class',
+                        choices=['udpflood', 'syn', 'udplag'],
+                        default='udpflood',
+                        help='Loại tấn công ở Phase 2: '
+                             'udpflood (mặc định, generic), '
+                             'syn (Pipeline §7.2 S2 — TCP SYN flood ~500 kpps), '
+                             'udplag (S2 — UDP-lag 64B payload ~200 kpps).')
     args = parser.parse_args()
 
     if os.name != 'nt' and os.geteuid() != 0:
@@ -585,6 +781,9 @@ if __name__ == '__main__':
     except KeyboardInterrupt:
         logger.info("Dừng bởi người dùng.")
         os.system('sudo mn -c')
-        stop_subprocess(evaluator.flink_proc, 'flink_processor')
+        if evaluator.flink_proc:
+            stop_subprocess(evaluator.flink_proc, 'flink_processor')
         if evaluator.kafka_consumer:
             evaluator.kafka_consumer.close()
+        if getattr(evaluator, 'remote_tier_poller', None):
+            evaluator.remote_tier_poller.stop()
