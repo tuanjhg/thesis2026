@@ -1,0 +1,34 @@
+# Expose pad-onap-pipeline Prometheus metrics + health probes to clients
+# outside the cluster (the remote Mininet VM uses this to read back tier
+# decisions during a run).
+#
+# Internal port 9292 already exposed as ClusterIP via Service
+# `pad-onap-metrics` in onap/k8s/pad-onap-deployment.yaml — we add a
+# second NodePort Service here without touching that one.
+#
+# Apply:
+#   kubectl apply -f onap/k8s/pad-onap-metrics-nodeport.yaml
+#   curl http://<NODE_IP>:30292/metrics | head
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pad-onap-metrics-external
+  namespace: pad-onap
+  labels:
+    app: pad-onap-pipeline
+spec:
+  type: NodePort
+  selector:
+    app: pad-onap-pipeline
+  ports:
+    - name: metrics
+      port: 9292
+      targetPort: 9292
+      nodePort: 30292
+      protocol: TCP
+    - name: health
+      port: 9293
+      targetPort: 9293
+      nodePort: 30293
+      protocol: TCP
