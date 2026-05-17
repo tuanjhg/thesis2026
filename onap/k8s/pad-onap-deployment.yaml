@@ -157,8 +157,11 @@ spec:
             - kafka
             - --broker
             - "$(PAD_KAFKA_BROKER)"
+            # mode = legacy (uses xgboost_v3.json + transformer_v3.pt — already
+            # trained, in pad_onap_v3/models/). Switch to "spec" only after
+            # training xgboost_track_a.json + lstm_track_b.pt per Pipeline.md §4.
             - --mode
-            - spec
+            - legacy
             - --model-dir
             - "$(PAD_MODEL_DIR)"
             - --data-dir

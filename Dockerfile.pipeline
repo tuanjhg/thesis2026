@@ -1,0 +1,59 @@
+# PAD-ONAP Pipeline — Container image
+# =====================================
+# Build:
+#   docker build -t pad-onap/pipeline:1.0.0 -f Dockerfile.pipeline .
+# Push to private registry (if K8s nodes pull from it):
+#   docker tag pad-onap/pipeline:1.0.0 <registry>/pad-onap/pipeline:1.0.0
+#   docker push <registry>/pad-onap/pipeline:1.0.0
+# Load directly into single-node K8s (no registry):
+#   docker save pad-onap/pipeline:1.0.0 -o pipeline.tar
+#   # K3s:
+#   sudo k3s ctr images import pipeline.tar
+#   # containerd (kubeadm):
+#   sudo ctr -n k8s.io images import pipeline.tar
+#   # minikube:
+#   minikube image load pad-onap/pipeline:1.0.0
+#
+# Runtime entrypoint is overridden in onap/k8s/pad-onap-deployment.yaml.
+# This Dockerfile defines a sensible default command that matches the deployment.
+
+FROM python:3.11-slim AS runtime
+
+# ── System deps (build tools needed for xgboost/torch wheels on slim) ──────────
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates curl \
+        gcc g++ \
+        libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# ── Python deps ───────────────────────────────────────────────────────────────
+# Install torch CPU first (Pod has no GPU per pad-onap-deployment.yaml limits).
+COPY requirements-pipeline.txt .
+RUN pip install --no-cache-dir --upgrade pip \
+ && pip install --no-cache-dir torch==2.3.0+cpu \
+        --index-url https://download.pytorch.org/whl/cpu \
+ && pip install --no-cache-dir -r requirements-pipeline.txt
+
+# ── Application code ──────────────────────────────────────────────────────────
+COPY pipeline/      pipeline/
+COPY evaluation/    evaluation/
+COPY onap/scripts/  onap/scripts/
+
+# ── Models will be mounted from PVC at /app/pad_onap_v3/models
+# ── Processed data dir is emptyDir at /app/pad_onap_v3/processed
+RUN mkdir -p pad_onap_v3/models pad_onap_v3/processed
+
+# ── Prometheus + Health ports ─────────────────────────────────────────────────
+EXPOSE 9292 9293
+
+# Default command — overridden by deployment args. Kept here so `docker run`
+# (e.g. for local smoke test) works without extra args.
+CMD ["python", "-m", "pipeline.s4_orchestration.orchestrator", \
+     "--source",  "kafka", \
+     "--broker",  "kafka.pad-onap.svc.cluster.local:9092", \
+     "--mode",    "legacy", \
+     "--model-dir", "/app/pad_onap_v3/models", \
+     "--data-dir",  "/app/pad_onap_v3/processed", \
+     "--latency-port", "9292"]
