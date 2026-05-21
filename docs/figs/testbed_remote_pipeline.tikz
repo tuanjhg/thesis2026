@@ -1,0 +1,66 @@
+\begin{tikzpicture}[
+  font=\sffamily\scriptsize,
+  >=Latex,
+  box/.style={draw, rounded corners=2pt, align=center, inner sep=4pt, minimum height=8mm},
+  host/.style={box, fill=blue!8, draw=blue!55},
+  svc/.style={box, fill=green!8, draw=green!50!black},
+  onap/.style={box, fill=orange!10, draw=orange!70!black},
+  ext/.style={box, fill=purple!8, draw=purple!60!black},
+  flow/.style={->, thick},
+  poll/.style={<-, thick, dashed}
+]
+
+\draw[rounded corners=4pt, fill=gray!4, draw=gray!55]
+  (-0.4,0.4) rectangle (5.5,-6.1);
+\node[font=\sffamily\bfseries] at (2.55,0.05) {LOCAL machine};
+\node[font=\sffamily\tiny] at (2.55,-0.25) {Ubuntu / WSL2 + Mininet VM};
+
+\draw[rounded corners=4pt, fill=gray!4, draw=gray!55]
+  (6.5,0.4) rectangle (13.9,-6.1);
+\node[font=\sffamily\bfseries] at (10.2,0.05) {REMOTE server};
+\node[font=\sffamily\tiny] at (10.2,-0.25) {Kubernetes + ONAP OOM};
+
+\node[host] (mn) at (2.55,-1.0)
+  {Mininet fat-tree $k=4$\\h0 attacker $\rightarrow$ h15 victim};
+\node[host] (softflowd) at (2.55,-2.0)
+  {softflowd on hosts\\NetFlow v5 export};
+\node[svc] (collector) at (2.55,-3.0)
+  {collector\\Kafka producer};
+\node[ext] (poller) at (2.55,-4.2)
+  {RemoteTierPoller\\samples tier metrics};
+\node[host] (reports) at (2.55,-5.25)
+  {local reports\\evaluation/results};
+
+\node[svc] (kafka) at (8.45,-1.1)
+  {ns: pad-onap\\Kafka KRaft\\NodePort 30992};
+\node[svc] (pipeline) at (10.6,-2.35)
+  {pad-onap-pipeline\\Flink $\rightarrow$ S3 AI\\orchestrator};
+\node[svc] (metrics) at (8.45,-4.15)
+  {metrics service\\NodePort 30292};
+\node[onap] (dmaap) at (12.25,-1.25)
+  {DMaaP\\AI signals};
+\node[onap] (policy) at (12.25,-2.35)
+  {CLAMP / Policy\\tier decision};
+\node[onap] (so) at (12.25,-3.45)
+  {SO\\CNF lifecycle};
+\node[onap] (cnf) at (12.25,-4.75)
+  {CNF / VNF action\\scrubber, isolation};
+
+\draw[flow, blue!70!black] (mn) -- (softflowd);
+\draw[flow, blue!70!black] (softflowd) -- (collector);
+\draw[flow, blue!70!black] (collector.east) -- node[above, font=\tiny]
+  {pad.telemetry.raw / TCP} (kafka.west);
+\draw[flow, green!50!black] (kafka) -- (pipeline);
+\draw[flow, orange!80!black] (pipeline) -- (dmaap);
+\draw[flow, orange!80!black] (dmaap) -- (policy);
+\draw[flow, orange!80!black] (policy) -- (so);
+\draw[flow, orange!80!black] (so) -- (cnf);
+\draw[flow, green!50!black] (pipeline) -- (metrics);
+\draw[poll, purple!70!black] (poller.east) -- node[below, font=\tiny]
+  {HTTP /metrics} (metrics.west);
+\draw[flow, gray!70] (poller) -- (reports);
+
+\node[align=left, font=\tiny, text=gray!70!black] at (10.25,-5.65)
+  {Only telemetry and metrics cross the local--remote boundary.};
+
+\end{tikzpicture}

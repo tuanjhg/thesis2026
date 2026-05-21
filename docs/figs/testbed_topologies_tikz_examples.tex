@@ -1,0 +1,24 @@
+% Example LaTeX wrappers for the PAD-ONAP testbed TikZ figures.
+% The main thesis preamble already loads tikz with calc, positioning,
+% shapes.geometric, fit, and arrows.meta.
+
+\begin{figure}[H]
+\centering
+\resizebox{\textwidth}{!}{\input{figs/testbed_remote_pipeline.tikz}}
+\caption{Remote-pipeline testbed: local Mininet exports telemetry to the remote K8s and ONAP stack.}
+\label{fig:testbed-remote-pipeline}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\resizebox{0.98\textwidth}{!}{\input{figs/testbed_3slice_topology.tikz}}
+\caption{PAD-ONAP three-slice Mininet topology with standby mitigation VNFs.}
+\label{fig:testbed-3slice-topology}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\resizebox{\textwidth}{!}{\input{figs/testbed_fat_tree_k4_topology.tikz}}
+\caption{Fat-tree $k=4$ Mininet topology used for real-traffic validation.}
+\label{fig:testbed-fat-tree-k4}
+\end{figure}

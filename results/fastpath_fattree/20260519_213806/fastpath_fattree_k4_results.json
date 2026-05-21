@@ -1,0 +1,188 @@
+{
+  "run_id": "20260519_213806",
+  "topology": {
+    "k": 4,
+    "expected_switches": 20,
+    "expected_hosts": 16,
+    "actual_switches": 20,
+    "actual_hosts": 16,
+    "attacker": "h0",
+    "attacker_ip": "10.0.0.1",
+    "victim": "h15",
+    "victim_ip": "10.3.1.2",
+    "pingall_loss_pct": 100.0
+  },
+  "ryu_url": "http://127.0.0.1:8080",
+  "scenario_duration_s": 5,
+  "scenarios": [
+    {
+      "scenario": "S1",
+      "attack_type": "BENIGN",
+      "target_tier": 0,
+      "fastpath_action": "pass",
+      "fastpath_post_latency_ms": 23.24,
+      "installed_switches": 0,
+      "flow_count": 0,
+      "pre_ping_loss_pct": 100.0,
+      "post_ping_loss_pct": 100.0,
+      "cleared_rules": 0,
+      "stats_switches": 20,
+      "traffic_output_head": [
+        "{",
+        "\t\"start\":\t{",
+        "\t\t\"connected\":\t[],",
+        "\t\t\"version\":\t\"iperf 3.9\",",
+        "\t\t\"system_info\":\t\"Linux theprison 6.6.114.1-microsoft-standard-WSL2 #1 SMP PREEMPT_DYNAMIC Mon Dec  1 20:46:23 UTC 2025 x86_64\""
+      ],
+      "pass": true
+    },
+    {
+      "scenario": "S2",
+      "attack_type": "SYN_LOW",
+      "target_tier": 2,
+      "fastpath_action": "ratelimit",
+      "fastpath_post_latency_ms": 22.35,
+      "installed_switches": 20,
+      "flow_count": 20,
+      "pre_ping_loss_pct": 100.0,
+      "post_ping_loss_pct": 100.0,
+      "cleared_rules": 20,
+      "stats_switches": 20,
+      "traffic_output_head": [
+        "HPING 10.3.1.2 (h0-eth0 10.3.1.2): S set, 40 headers + 0 data bytes",
+        "",
+        "--- 10.3.1.2 hping statistic ---",
+        "4725 packets transmitted, 0 packets received, 100% packet loss",
+        "round-trip min/avg/max = 0.0/0.0/0.0 ms"
+      ],
+      "pass": true
+    },
+    {
+      "scenario": "S3",
+      "attack_type": "SYN_HIGH",
+      "target_tier": 3,
+      "fastpath_action": "redirect",
+      "fastpath_post_latency_ms": 16.23,
+      "installed_switches": 20,
+      "flow_count": 20,
+      "pre_ping_loss_pct": 100.0,
+      "post_ping_loss_pct": 100.0,
+      "cleared_rules": 20,
+      "stats_switches": 20,
+      "traffic_output_head": [
+        "HPING 10.3.1.2 (h0-eth0 10.3.1.2): S set, 40 headers + 0 data bytes",
+        "hping in flood mode, no replies will be shown",
+        "",
+        "--- 10.3.1.2 hping statistic ---",
+        "959980 packets transmitted, 0 packets received, 100% packet loss"
+      ],
+      "pass": true
+    },
+    {
+      "scenario": "S4",
+      "attack_type": "UDP_AMP",
+      "target_tier": 3,
+      "fastpath_action": "redirect",
+      "fastpath_post_latency_ms": 13.66,
+      "installed_switches": 20,
+      "flow_count": 20,
+      "pre_ping_loss_pct": 100.0,
+      "post_ping_loss_pct": 100.0,
+      "cleared_rules": 20,
+      "stats_switches": 20,
+      "traffic_output_head": [
+        "HPING 10.3.1.2 (h0-eth0 10.3.1.2): udp mode set, 28 headers + 0 data bytes",
+        "hping in flood mode, no replies will be shown",
+        "",
+        "--- 10.3.1.2 hping statistic ---",
+        "909154 packets transmitted, 0 packets received, 100% packet loss"
+      ],
+      "pass": true
+    },
+    {
+      "scenario": "S5",
+      "attack_type": "MULTI",
+      "target_tier": 4,
+      "fastpath_action": "drop",
+      "fastpath_post_latency_ms": 27.79,
+      "installed_switches": 20,
+      "flow_count": 20,
+      "pre_ping_loss_pct": 100.0,
+      "post_ping_loss_pct": 100.0,
+      "cleared_rules": 20,
+      "stats_switches": 20,
+      "traffic_output_head": [
+        "hping in flood mode, no replies will be shown",
+        "[send_ip] sendto: Operation not permitted",
+        "HPING 10.3.1.2 (h0-eth0 10.3.1.2): S set, 40 headers + 0 data bytes",
+        "hping in flood mode, no replies will be shown",
+        ""
+      ],
+      "pass": true
+    },
+    {
+      "scenario": "S6",
+      "attack_type": "CARPET",
+      "target_tier": 4,
+      "fastpath_action": "drop",
+      "fastpath_post_latency_ms": 23.33,
+      "installed_switches": 20,
+      "flow_count": 20,
+      "pre_ping_loss_pct": 100.0,
+      "post_ping_loss_pct": 100.0,
+      "cleared_rules": 20,
+      "stats_switches": 20,
+      "traffic_output_head": [
+        "Option error: you need to specify an interface when the --rand-dest option is enabled"
+      ],
+      "pass": true
+    },
+    {
+      "scenario": "S7",
+      "attack_type": "SLOW_RATE",
+      "target_tier": 2,
+      "fastpath_action": "ratelimit",
+      "fastpath_post_latency_ms": 27.65,
+      "installed_switches": 20,
+      "flow_count": 20,
+      "pre_ping_loss_pct": 100.0,
+      "post_ping_loss_pct": 100.0,
+      "cleared_rules": 20,
+      "stats_switches": 20,
+      "traffic_output_head": [
+        "HPING 10.3.1.2 (h0-eth0 10.3.1.2): S set, 40 headers + 0 data bytes",
+        "",
+        "--- 10.3.1.2 hping statistic ---",
+        "4707 packets transmitted, 0 packets received, 100% packet loss",
+        "round-trip min/avg/max = 0.0/0.0/0.0 ms"
+      ],
+      "pass": true
+    },
+    {
+      "scenario": "S8",
+      "attack_type": "BURST",
+      "target_tier": 3,
+      "fastpath_action": "redirect",
+      "fastpath_post_latency_ms": 24.83,
+      "installed_switches": 20,
+      "flow_count": 20,
+      "pre_ping_loss_pct": 100.0,
+      "post_ping_loss_pct": 100.0,
+      "cleared_rules": 20,
+      "stats_switches": 20,
+      "traffic_output_head": [
+        "hping in flood mode, no replies will be shown",
+        "[send_ip] sendto: Operation not permitted",
+        "HPING 10.3.1.2 (h0-eth0 10.3.1.2): S set, 40 headers + 0 data bytes",
+        "hping in flood mode, no replies will be shown",
+        ""
+      ],
+      "pass": true
+    }
+  ],
+  "ryu_topology_seen": {
+    "switches": 20,
+    "links": 62,
+    "hosts": 22
+  }
+}

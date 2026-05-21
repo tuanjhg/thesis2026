@@ -1,5 +1,53 @@
 # E2E Pipeline trên WSL2 — Mininet + Kafka + Flink + Real s3_ai (ONAP stub)
 
+> **Đã fix (2026-05-17):** lỗi Kafka KRaft `Cannot resolve kafka:9093` lúc khởi
+> động khiến E2E kẹt / producer broken pipe. Xem [Section: Kafka quorum fix](#kafka-quorum-fix).
+> Diagnose nhanh: `bash scripts/diagnose_kafka.sh`.
+
+<a id="kafka-quorum-fix"></a>
+## Kafka quorum fix — vì sao broken pipe xảy ra
+
+**Triệu chứng cũ:**
+```
+[KafkaRaftServer] Error processing fetch request from voter 1
+  java.net.UnknownHostException: kafka: Temporary failure in name resolution
+[Producer clientId=...] Error sending fetch request: Broken pipe
+```
+
+**Nguyên nhân:** trong `docker-compose.yml`, `KAFKA_CONTROLLER_QUORUM_VOTERS:
+1@kafka:9093` yêu cầu broker dial hostname `kafka` ở port 9093. Nhưng:
+1. Lúc container vừa start, Docker embedded DNS chưa kịp register service name
+2. Broker và controller chạy cùng pod → broker phải dial chính nó qua DNS
+3. Quorum init fail → broker stuck CONTROLLER_NOT_READY
+4. Producer connect được TCP nhưng request bị reject → `Broken pipe`
+
+**Fix (đã apply):**
+- `KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:9093` — tự dial qua loopback,
+  bỏ phụ thuộc DNS hoàn toàn (single-node KRaft → quorum chỉ có 1 voter là chính nó)
+- `hostname: kafka` + `extra_hosts: ["kafka:127.0.0.1"]` — đảm bảo intra-container
+  resolution cho INTERNAL listener `kafka:29092`
+- `start_period: 60s` — KRaft cần ~30–40s format log dir lần đầu, healthcheck cũ 20s quá ngắn
+- `networks.default.aliases: [kafka]` — service name khớp với cả advertised listener
+
+**Verify sau khi `docker compose up -d kafka`:**
+```bash
+bash scripts/diagnose_kafka.sh
+# Expect:
+# ▸ Container status               ✓ container running, health=healthy
+# ▸ Controller quorum (KRaft)      ✓ quorum has a leader
+# ▸ INTERNAL listener kafka:29092  ✓ INTERNAL listener responding
+# ▸ EXTERNAL listener localhost:9092  ✓ TCP port reachable from host
+# ▸ End-to-end produce/consume     ✓ round-trip succeeded
+```
+
+**Pipeline trỏ broker đúng:**
+- Pipeline chạy **native trên host** → `--broker localhost:9092` (default, không sửa gì)
+- Pipeline chạy **trong Docker container** trên cùng compose network → `--broker kafka:29092`
+
+---
+
+
+
 Hướng dẫn chạy `testbed/netflow_e2e_pipeline.py` đầy đủ luồng:
 
 ```

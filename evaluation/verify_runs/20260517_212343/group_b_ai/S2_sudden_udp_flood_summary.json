@@ -1,0 +1,33 @@
+{
+  "scenario": "S2_sudden_udp_flood",
+  "n_windows": 110,
+  "max_tier_reached": 4,
+  "tier_dist": {
+    "0": 31,
+    "1": 0,
+    "2": 0,
+    "3": 0,
+    "4": 79
+  },
+  "proactive_count": 0,
+  "e2e_latency_ms": {
+    "p50": 202.61,
+    "p95": 202.61,
+    "p99": 202.61,
+    "n": 1
+  },
+  "tier2_latency_ms": {
+    "p50": 0,
+    "p95": 0,
+    "p99": 0,
+    "n": 0
+  },
+  "tier3_latency_ms": {
+    "p50": 0,
+    "p95": 0,
+    "p99": 0,
+    "n": 0
+  },
+  "sla_ok": true,
+  "pass_fail": "FAIL"
+}

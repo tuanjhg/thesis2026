@@ -289,7 +289,10 @@ def run_scenario(
 
     # Reset orchestrator state between scenarios
     orchestrator.policy.reset(orchestrator.device_id)
-    orchestrator.engine.reset_buffer()
+    if hasattr(orchestrator.engine, 'reset_buffer'):
+        orchestrator.engine.reset_buffer()
+    else:
+        orchestrator.engine.reset_buffers()
     orchestrator._active_instance.clear()
     orchestrator._window_count = 0
 
@@ -299,7 +302,28 @@ def run_scenario(
     sla_ok_count    = 0
 
     for x_raw in scenario.windows:
-        rec = orchestrator._step(x_raw)
+        x_step = x_raw
+        if hasattr(orchestrator.engine, 'infer_track_a') and len(x_raw) == 17:
+            from pipeline.s3_ai.live_pipeline import _flow_features_from_snapshot
+            snapshot = {
+                name: float(x_raw[i])
+                for i, name in enumerate(FEATURE_NAMES)
+            }
+            x_step = _flow_features_from_snapshot(snapshot)
+        try:
+            rec = orchestrator._step(
+                x_step,
+                source_device_id=orchestrator.device_id,
+                ip_meta={
+                    'source_ip_prefix': None,
+                    'target_ip_prefix': None,
+                    'tenant_id': None,
+                },
+            )
+        except TypeError as exc:
+            if 'source_device_id' not in str(exc) and 'ip_meta' not in str(exc):
+                raise
+            rec = orchestrator._step(x_raw)
         orchestrator._window_count += 1
         if rec:
             records.append(rec)

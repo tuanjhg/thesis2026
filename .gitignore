@@ -14,3 +14,5 @@ node_modules/
 datasets/
 agent/
 package-lock.json
+.venv_wsl
+.venv_ubuntu2204

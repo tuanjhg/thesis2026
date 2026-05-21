@@ -1,0 +1,493 @@
+@misc{rfc8612,
+  author       = {Mortensen, A. and Reddy, T. and Moskowitz, R.},
+  title        = {{RFC 8612}: {DDoS} {Open} {Threat} {Signaling} ({DOTS}) Requirements},
+  year         = {2019},
+  publisher    = {Internet Engineering Task Force},
+  howpublished = {RFC 8612},
+  url          = {https://www.rfc-editor.org/rfc/rfc8612}
+}
+
+@misc{sfc_rfc7665,
+  author       = {Halpern, J. and Pignataro, C.},
+  title        = {{RFC 7665}: Service Function Chaining ({SFC}) Architecture},
+  year         = {2015},
+  publisher    = {Internet Engineering Task Force},
+  howpublished = {RFC 7665},
+  url          = {https://www.rfc-editor.org/rfc/rfc7665}
+}
+
+@misc{etsi_nfv_architecture,
+  author       = {{European Telecommunications Standards Institute}},
+  title        = {Network Functions Virtualisation ({NFV}); Architectural Framework},
+  number       = {GS NFV 002 V1.2.1},
+  year         = {2014},
+  organization = {ETSI},
+  url          = {https://www.etsi.org/deliver/etsi_gs/NFV/001_099/002/01.02.01_60/gs_NFV002v010201p.pdf}
+}
+
+@misc{onap_docs,
+  author       = {{Open Network Automation Platform Project}},
+  title        = {{ONAP} Documentation},
+  year         = {2024},
+  organization = {Linux Foundation},
+  url          = {https://docs.onap.org/}
+}
+
+@misc{kubernetes_docs,
+  author       = {{The Kubernetes Authors}},
+  title        = {{Kubernetes} Documentation},
+  year         = {2024},
+  organization = {Linux Foundation},
+  url          = {https://kubernetes.io/docs/}
+}
+
+
+% ─────────────────────────────────────────────────────────────────────
+% Foundational data-centre networking and SDN/NFV literature
+% ─────────────────────────────────────────────────────────────────────
+
+@inproceedings{alfares2008scalable,
+  author    = {Al-Fares, Mohammad and Loukissas, Alexander and Vahdat, Amin},
+  title     = {A Scalable, Commodity Data Center Network Architecture},
+  booktitle = {Proc. ACM SIGCOMM},
+  year      = {2008},
+  pages     = {63--74},
+  doi       = {10.1145/1402958.1402967}
+}
+
+@article{sdn_survey_kreutz2015,
+  author  = {Kreutz, Diego and Ramos, Fernando M. V. and Ver{\'i}ssimo, Paulo E.
+             and Rothenberg, Christian E. and Azodolmolky, Siamak and Uhlig, Steve},
+  title   = {Software-Defined Networking: A Comprehensive Survey},
+  journal = {Proceedings of the IEEE},
+  volume  = {103},
+  number  = {1},
+  year    = {2015},
+  pages   = {14--76},
+  doi     = {10.1109/JPROC.2014.2371999}
+}
+
+@inproceedings{lantz2010mininet,
+  author    = {Lantz, Bob and Heller, Brandon and McKeown, Nick},
+  title     = {A Network in a Laptop: Rapid Prototyping for Software-Defined Networks},
+  booktitle = {Proc. 9th ACM SIGCOMM Workshop on Hot Topics in Networks (HotNets-IX)},
+  year      = {2010},
+  pages     = {1--6},
+  doi       = {10.1145/1868447.1868466}
+}
+
+
+% ─────────────────────────────────────────────────────────────────────
+% DDoS background and taxonomy
+% ─────────────────────────────────────────────────────────────────────
+
+@article{mirkovic2004taxonomy,
+  author  = {Mirkovic, Jelena and Reiher, Peter},
+  title   = {A Taxonomy of {DDoS} Attack and {DDoS} Defense Mechanisms},
+  journal = {ACM SIGCOMM Computer Communication Review},
+  volume  = {34},
+  number  = {2},
+  year    = {2004},
+  pages   = {39--53},
+  doi     = {10.1145/997150.997156}
+}
+
+@inproceedings{sharafaldin2019cicddos,
+  author    = {Sharafaldin, Iman and Habibi Lashkari, Arash and Hakak, Saqib and Ghorbani, Ali A.},
+  title     = {Developing Realistic Distributed Denial of Service ({DDoS}) Attack Dataset and Taxonomy},
+  booktitle = {Proc. IEEE 53rd International Carnahan Conference on Security Technology (ICCST)},
+  year      = {2019},
+  pages     = {1--8},
+  doi       = {10.1109/CCST.2019.8888419}
+}
+
+% Reference to the CICDDoS2019 dataset distribution page maintained by the
+% Canadian Institute for Cybersecurity.  Use this entry when citing the
+% dataset files / website rather than the original paper.
+@misc{cicddos2019_official,
+  author       = {{Canadian Institute for Cybersecurity}},
+  title        = {{DDoS} 2019 Dataset},
+  year         = {2019},
+  organization = {University of New Brunswick},
+  url          = {https://www.unb.ca/cic/datasets/ddos-2019.html}
+}
+
+% CICFlowMeter reference paper.  The widely cited flow-feature extraction
+% tool was introduced in this paper alongside the related CICIDS dataset.
+@inproceedings{cicflowmeter_official,
+  author    = {Habibi Lashkari, Arash and Draper-Gil, Gerard and Mamun, Mohammad Saiful Islam and Ghorbani, Ali A.},
+  title     = {Characterization of Tor Traffic Using Time-Based Features},
+  booktitle = {Proc. 3rd International Conference on Information Systems Security and Privacy (ICISSP)},
+  year      = {2017},
+  pages     = {253--262},
+  doi       = {10.5220/0006105602530262}
+}
+
+
+% ─────────────────────────────────────────────────────────────────────
+% Machine-learning core methods used by PAD-ONAP
+% ─────────────────────────────────────────────────────────────────────
+
+@inproceedings{xgboost_chen2016,
+  author    = {Chen, Tianqi and Guestrin, Carlos},
+  title     = {{XGBoost}: A Scalable Tree Boosting System},
+  booktitle = {Proc. 22nd ACM SIGKDD International Conference on Knowledge Discovery and Data Mining (KDD)},
+  year      = {2016},
+  pages     = {785--794},
+  doi       = {10.1145/2939672.2939785}
+}
+
+@article{geurts2006extratrees,
+  author  = {Geurts, Pierre and Ernst, Damien and Wehenkel, Louis},
+  title   = {Extremely Randomized Trees},
+  journal = {Machine Learning},
+  volume  = {63},
+  number  = {1},
+  year    = {2006},
+  pages   = {3--42},
+  doi     = {10.1007/s10994-006-6226-1}
+}
+
+@article{lstm_hochreiter1997,
+  author  = {Hochreiter, Sepp and Schmidhuber, J{\"u}rgen},
+  title   = {Long Short-Term Memory},
+  journal = {Neural Computation},
+  volume  = {9},
+  number  = {8},
+  year    = {1997},
+  pages   = {1735--1780},
+  doi     = {10.1162/neco.1997.9.8.1735}
+}
+
+@inproceedings{vaswani2017attention,
+  author    = {Vaswani, Ashish and Shazeer, Noam and Parmar, Niki and Uszkoreit, Jakob
+               and Jones, Llion and Gomez, Aidan N. and Kaiser, {\L}ukasz and Polosukhin, Illia},
+  title     = {Attention Is All You Need},
+  booktitle = {Advances in Neural Information Processing Systems 30 (NeurIPS)},
+  year      = {2017},
+  pages     = {5998--6008},
+  url       = {https://papers.nips.cc/paper/7181-attention-is-all-you-need}
+}
+
+@inproceedings{shap_lundberg2017,
+  author    = {Lundberg, Scott M. and Lee, Su-In},
+  title     = {A Unified Approach to Interpreting Model Predictions},
+  booktitle = {Advances in Neural Information Processing Systems 30 (NeurIPS)},
+  year      = {2017},
+  pages     = {4765--4774},
+  url       = {https://papers.nips.cc/paper/7062-a-unified-approach-to-interpreting-model-predictions}
+}
+
+@inproceedings{bifet2007adwin,
+  author    = {Bifet, Albert and Gavald{\`a}, Ricard},
+  title     = {Learning from Time-Changing Data with Adaptive Windowing},
+  booktitle = {Proc. SIAM International Conference on Data Mining (SDM)},
+  year      = {2007},
+  pages     = {443--448},
+  doi       = {10.1137/1.9781611972771.42}
+}
+
+
+% ─────────────────────────────────────────────────────────────────────
+% Optimisation and resource allocation
+% ─────────────────────────────────────────────────────────────────────
+
+@book{boyd2004convex,
+  author    = {Boyd, Stephen and Vandenberghe, Lieven},
+  title     = {Convex Optimization},
+  year      = {2004},
+  publisher = {Cambridge University Press},
+  doi       = {10.1017/CBO9780511804441}
+}
+
+
+% ─────────────────────────────────────────────────────────────────────
+% Tools / software references
+% ─────────────────────────────────────────────────────────────────────
+
+@misc{mininet_website,
+  author       = {{Mininet Project Contributors}},
+  title        = {Mininet: An Instant Virtual Network on your Laptop (or other PC)},
+  year         = {2024},
+  url          = {https://mininet.org/}
+}
+
+@misc{hping3_man,
+  author       = {Sanfilippo, Salvatore},
+  title        = {{hping3}: Active Network Security Tool},
+  year         = {2024},
+  url          = {http://www.hping.org/}
+}
+
+@misc{openvswitch_docs,
+  author       = {{Open vSwitch Project}},
+  title        = {{Open vSwitch} Documentation},
+  year         = {2024},
+  organization = {Linux Foundation},
+  url          = {https://docs.openvswitch.org/}
+}
+
+
+@article{apostu2025ai_ddos_survey,
+  author  = {Apostu, Alexandru and Gheorghe, Silviu Florin and H{\^\i}ji, Andrei Iulian and Cleju, Nicolae and Patrascu, Andrei and Rusu, Cristian and Ionescu, Radu Tudor and Irofti, Paul},
+  title   = {Detecting and Mitigating {DDoS} Attacks with {AI}: A Survey},
+  journal = {CoRR},
+  volume  = {abs/2503.17867},
+  year    = {2025},
+  doi     = {10.48550/arXiv.2503.17867},
+  url     = {https://arxiv.org/abs/2503.17867}
+}
+
+@article{alashhab2024ensemble_oml,
+  author  = {Alashhab, Abdussalam Ahmed and Zahid, Mohd Soperi and Isyaku, Babangida and Elnour, Asma Abbas and Nagmeldin, Wamda and Abdelmaboud, Abdelzahir and Abdullah, Talal Ali Ahmed and Maiwada, Umar Danjuma},
+  title   = {Enhancing {DDoS} Attack Detection and Mitigation in {SDN} Using an Ensemble Online Machine Learning Model},
+  journal = {IEEE Access},
+  volume  = {12},
+  pages   = {51630--51649},
+  year    = {2024},
+  doi     = {10.1109/ACCESS.2024.3384398}
+}
+
+@article{cada_2025,
+  author  = {Wu, Junrui and He, Zhige and Wang, Wenyong and Luo, Haoran and Hu, Shuisong and Miao, Yu and Li, Yubo and Deng, Jun},
+  title   = {{CADA}: A Flexible and Elastic {DDoS} Mitigation Architecture},
+  journal = {IEEE Access},
+  volume  = {13},
+  pages   = {61416--61428},
+  year    = {2025},
+  doi     = {10.1109/ACCESS.2025.3554782}
+}
+
+%======================================================================
+% Added 2026-05-16: missing entries for AI / streaming-telemetry sections
+% Track A (XGBoost) detector, Track B (CNN+BiLSTM+Attention) forecaster,
+% supporting dataset, baseline, and infrastructure references.
+%======================================================================
+
+% ----- Datasets -----------------------------------------------------------
+@inproceedings{sharafaldin2018cicids,
+  author    = {Sharafaldin, Iman and Habibi Lashkari, Arash and Ghorbani, Ali A.},
+  title     = {Toward Generating a New Intrusion Detection Dataset and
+               Intrusion Traffic Characterization},
+  booktitle = {Proceedings of the 4th International Conference on Information
+               Systems Security and Privacy (ICISSP)},
+  pages     = {108--116},
+  year      = {2018},
+  publisher = {SciTePress},
+  doi       = {10.5220/0006639801080116}
+}
+
+@misc{cicids2017_official,
+  author       = {{Canadian Institute for Cybersecurity}},
+  title        = {Intrusion Detection Evaluation Dataset (CIC-IDS2017)},
+  howpublished = {\url{https://www.unb.ca/cic/datasets/ids-2017.html}},
+  year         = {2017},
+  note         = {University of New Brunswick. Accessed: 2026-05-15.}
+}
+
+% ----- Streaming telemetry infrastructure --------------------------------
+@misc{gnmi_spec,
+  author       = {{OpenConfig}},
+  title        = {{gNMI:} {gRPC Network Management Interface} -- Specification},
+  howpublished = {\url{https://github.com/openconfig/reference/blob/master/rpc/gnmi/gnmi-specification.md}},
+  year         = {2018},
+  note         = {OpenConfig reference, gNMI v0.7.0. Accessed: 2026-05-15.}
+}
+
+@misc{grpc_docs,
+  author       = {{gRPC Authors}},
+  title        = {{gRPC:} A High-Performance, Open-Source Universal RPC Framework},
+  howpublished = {\url{https://grpc.io/docs/}},
+  year         = {2024},
+  note         = {Accessed: 2026-05-15.}
+}
+
+@misc{yang_rfc7950,
+  author       = {Bjorklund, M.},
+  title        = {The {YANG} 1.1 Data Modeling Language},
+  howpublished = {RFC 7950, IETF},
+  year         = {2016},
+  doi          = {10.17487/RFC7950}
+}
+
+@article{kafka_kreps2011,
+  author    = {Kreps, Jay and Narkhede, Neha and Rao, Jun and others},
+  title     = {Kafka: A Distributed Messaging System for Log Processing},
+  journal   = {Proceedings of the NetDB Workshop},
+  year      = {2011},
+  pages     = {1--7},
+  note      = {Apache Kafka original design paper.}
+}
+
+@article{flink_carbone2015,
+  author    = {Carbone, Paris and Katsifodimos, Asterios and Ewen, Stephan and
+               Markl, Volker and Haridi, Seif and Tzoumas, Kostas},
+  title     = {Apache {Flink}: Stream and Batch Processing in a Single Engine},
+  journal   = {Bulletin of the IEEE Computer Society Technical Committee on
+               Data Engineering},
+  volume    = {38},
+  number    = {4},
+  pages     = {28--38},
+  year      = {2015}
+}
+
+% ----- Forecasting / sequence modelling SOTA -----------------------------
+@article{hiremath2026pardssm,
+  author    = {{Kumar Satyansh} and Seth, Aditya and Naik, Ameya and Anand, Saket},
+  title     = {{PARD-SSM}: Proactive {DDoS} Attack Regime Detection Using
+               Switching State Space Models},
+  journal   = {arXiv preprint arXiv:2604.02299},
+  year      = {2026},
+  doi       = {10.48550/arXiv.2604.02299},
+  url       = {https://arxiv.org/abs/2604.02299}
+}
+
+@article{alghazzawi2021cnnbilstm,
+  author    = {Alghazzawi, Daniyal and Bamasag, Omaimah and Ullah, Hayat and
+               Asghar, Muhammad Zubair},
+  title     = {Efficient Detection of {DDoS} Attacks Using a Hybrid Deep
+               Learning Model with a Multi-Layer Feature Selection Approach},
+  journal   = {Applied Sciences},
+  volume    = {11},
+  number    = {24},
+  pages     = {11634},
+  year      = {2021},
+  publisher = {MDPI},
+  doi       = {10.3390/app112411634}
+}
+
+@article{alanazi2022ensembleddos,
+  author    = {Alanazi, Fatmah and Jambi, Kamal and Eassa, Fathy and
+               Khemakhem, Maher and Basuhail, Abdullah and Alsubhi, Khalid},
+  title     = {Ensemble Deep Learning Models for Mitigating {DDoS} Attack in
+               Software-Defined Network},
+  journal   = {Intelligent Automation \& Soft Computing},
+  volume    = {33},
+  number    = {2},
+  pages     = {923--938},
+  year      = {2022},
+  doi       = {10.32604/iasc.2022.024668}
+}
+
+@article{hamcid2025nature,
+  author    = {Antony Joseph Raj, S. and Madiajagan, M.},
+  title     = {{HAMC-ID}: Hybrid Attention-Based Meta-Classifier for
+               Intrusion Detection},
+  journal   = {Scientific Reports},
+  volume    = {15},
+  pages     = {43431},
+  year      = {2025},
+  doi       = {10.1038/s41598-025-26631-8}
+}
+
+@article{cnnbilstmattn2025,
+  author    = {Najar, Ashfaq Ahmad and Naik, S. Manohar},
+  title     = {{DDoS} Attack Detection Using {CNN-BiLSTM} with Attention
+               Mechanism},
+  journal   = {Telematics and Informatics Reports},
+  volume    = {18},
+  pages     = {100211},
+  year      = {2025},
+  doi       = {10.1016/j.teler.2025.100211},
+  url       = {https://www.sciencedirect.com/science/article/pii/S277250302500026X}
+}
+
+% ----- Forecasting baselines / methodology -------------------------------
+@book{hyndman2018forecasting,
+  author    = {Hyndman, Rob J. and Athanasopoulos, George},
+  title     = {Forecasting: Principles and Practice},
+  edition   = {2nd},
+  publisher = {OTexts},
+  year      = {2018},
+  url       = {https://otexts.com/fpp2/},
+  note      = {Persistence baseline and lookback/horizon ratio guidance from
+               the M-competition methodology.}
+}
+
+@inproceedings{zerveas2021tstransformer,
+  author    = {Zerveas, George and Jayaraman, Srideepika and Patel, Dhaval and
+               Bhamidipaty, Anuradha and Eickhoff, Carsten},
+  title     = {A Transformer-Based Framework for Multivariate Time Series
+               Representation Learning},
+  booktitle = {Proceedings of the 27th ACM SIGKDD Conference on Knowledge
+               Discovery and Data Mining (KDD)},
+  pages     = {2114--2124},
+  year      = {2021},
+  doi       = {10.1145/3447548.3467401}
+}
+
+@inproceedings{lin2017focal,
+  author    = {Lin, Tsung-Yi and Goyal, Priya and Girshick, Ross and He, Kaiming
+               and Doll{\'a}r, Piotr},
+  title     = {Focal Loss for Dense Object Detection},
+  booktitle = {Proceedings of the IEEE International Conference on Computer
+               Vision (ICCV)},
+  pages     = {2980--2988},
+  year      = {2017},
+  doi       = {10.1109/ICCV.2017.324}
+}
+
+% ----- DDoS-detection literature surveyed in Chapter 2 -------------------
+@article{hill2024ddos_sdn_survey,
+  author    = {Hill, Winston and Acquaah, Yaa Takyiwaa and Mason, Janelle and
+               Limbrick, Daniel and Teixeira-Poit, Stephanie and Coates,
+               Carla and Roy, Kaushik},
+  title     = {{DDoS} in {SDN}: A Review of Open Datasets, Attack Vectors and
+               Mitigation Strategies},
+  journal   = {Discover Applied Sciences},
+  volume    = {6},
+  number    = {9},
+  pages     = {472},
+  year      = {2024},
+  doi       = {10.1007/s42452-024-06172-x}
+}
+
+@article{wang2024multidimensional_sdn,
+  author    = {Wang, Kun and Fu, Yu and Duan, Xueyuan and Liu, Taotao},
+  title     = {Detection and Mitigation of {DDoS} Attacks Based on
+               Multi-Dimensional Characteristics in {SDN}},
+  journal   = {Scientific Reports},
+  volume    = {14},
+  pages     = {16421},
+  year      = {2024},
+  doi       = {10.1038/s41598-024-66907-z}
+}
+
+@article{kumar2025multivariate,
+  author    = {Kumar, Prashant and Kushwaha, Chitra and Sethi, Dimple and
+               Ghosh, Debjani and Gupta, Punit and Vidyarthi, Ankit},
+  title     = {Investigating the Performance of Multivariate {LSTM} Models to
+               Predict the Occurrence of Distributed Denial of Service
+               ({DDoS}) Attack},
+  journal   = {PLOS ONE},
+  volume    = {20},
+  number    = {1},
+  pages     = {e0313930},
+  year      = {2025},
+  doi       = {10.1371/journal.pone.0313930}
+}
+
+@article{hernandez2025realtime_timeseries,
+  author    = {Hernandez, Drixter V. and Lai, Yu-Kuen and Ignatius,
+               Hargyo T. N.},
+  title     = {Real-Time {DDoS} Detection in High-Speed Networks: A Deep
+               Learning Approach with Multivariate Time Series},
+  journal   = {Electronics},
+  volume    = {14},
+  number    = {13},
+  pages     = {2673},
+  year      = {2025},
+  doi       = {10.3390/electronics14132673}
+}
+
+@article{thaqi2026online_threat_intel,
+  author    = {Thaqi, Rrezearta and Lenzini, Gabriele and V{\"o}lp, Marcus and
+               Rexha, Blerim},
+  title     = {Online Machine Learning for Proactive Threat Intelligence and
+               Timely {DDoS} Attack Prediction},
+  journal   = {Journal of Cloud Computing},
+  volume    = {15},
+  number    = {22},
+  year      = {2026},
+  doi       = {10.1186/s13677-026-00848-y}
+}

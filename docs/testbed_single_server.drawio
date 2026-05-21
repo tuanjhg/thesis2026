@@ -1,0 +1,471 @@
+<mxfile host="app.diagrams.net" modified="2026-05-14T13:00:00.000Z" agent="claude-code" version="24.0.0">
+  <diagram name="Testbed-Single-Server" id="testbed-1">
+    <mxGraphModel dx="2400" dy="1500" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="2000" pageHeight="1300" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <!-- ========== TITLE ========== -->
+        <mxCell id="title" value="PAD-ONAP Single-Server Testbed — Real ONAP + K8s + Mininet (fat-tree k=4)" style="text;html=1;align=center;verticalAlign=middle;fontSize=18;fontStyle=1;fillColor=none;strokeColor=none;" vertex="1" parent="1">
+          <mxGeometry x="100" y="10" width="1500" height="30" as="geometry" />
+        </mxCell>
+
+        <!-- ========== SERVER BOUNDARY ========== -->
+        <mxCell id="server" value="PHYSICAL SERVER — Ubuntu 22.04 · 96 GB RAM · 24 vCPU · NVMe 500 GB" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#F5F5F5;strokeColor=#333333;strokeWidth=3;verticalAlign=top;fontStyle=1;fontSize=13;align=left;spacingLeft=10;spacingTop=6;" vertex="1" parent="1">
+          <mxGeometry x="40" y="50" width="1620" height="1400" as="geometry" />
+        </mxCell>
+
+        <!-- ========== ROOT NETNS ========== -->
+        <mxCell id="rootns" value="ROOT network namespace — production K8s + ONAP" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#E1F5FE;strokeColor=#0277BD;strokeWidth=2;verticalAlign=top;fontStyle=1;fontSize=12;align=left;spacingLeft=10;spacingTop=4;" vertex="1" parent="1">
+          <mxGeometry x="70" y="90" width="1560" height="560" as="geometry" />
+        </mxCell>
+
+        <!-- K8s control plane -->
+        <mxCell id="k8sctl" value="Kubernetes (kubeadm)&#10;apiserver · etcd · scheduler&#10;CNI: Calico (pod CIDR 10.244.0.0/16)&#10;~ 4 GB · 2 vCPU" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF3E0;strokeColor=#E65100;fontSize=11;align=center;" vertex="1" parent="1">
+          <mxGeometry x="90" y="130" width="230" height="100" as="geometry" />
+        </mxCell>
+
+        <!-- Production OVS daemon -->
+        <mxCell id="prodovs" value="Production OVS daemon&#10;/var/run/openvswitch/db.sock&#10;Calico veth + br-int" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF3E0;strokeColor=#E65100;fontSize=11;align=center;" vertex="1" parent="1">
+          <mxGeometry x="90" y="250" width="230" height="80" as="geometry" />
+        </mxCell>
+
+        <!-- Prometheus -->
+        <mxCell id="prom" value="Prometheus + Grafana&#10;:9190 · :3001&#10;scrape latency :9292" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF3E0;strokeColor=#E65100;fontSize=11;align=center;" vertex="1" parent="1">
+          <mxGeometry x="90" y="350" width="230" height="80" as="geometry" />
+        </mxCell>
+
+        <!-- iptables -->
+        <mxCell id="ipt" value="iptables FORWARD&#10;-s 10.0.0.0/16 -o ENS* DROP&#10;rp_filter = 1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFCDD2;strokeColor=#B71C1C;fontSize=11;align=center;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="90" y="450" width="230" height="80" as="geometry" />
+        </mxCell>
+
+        <!-- ========== ONAP NAMESPACE (no DMaaP — CLAMP nhận REST trực tiếp) ========== -->
+        <mxCell id="onapns" value="K8s namespace: onap   (no DMaaP — SO + CLAMP + Policy + AAI + SDC, ~40 GB · 10 vCPU)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#0277BD;strokeWidth=1;dashed=1;verticalAlign=top;fontStyle=1;fontSize=11;align=left;spacingLeft=8;spacingTop=4;" vertex="1" parent="1">
+          <mxGeometry x="350" y="130" width="600" height="500" as="geometry" />
+        </mxCell>
+
+        <mxCell id="clamp" value="CLAMP&#10;:30258 — loop operations REST&#10;(nhận event trực tiếp, KHÔNG poll DMaaP)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#C8E6C9;strokeColor=#1B5E20;fontSize=11;fontStyle=1;align=center;" vertex="1" parent="1">
+          <mxGeometry x="370" y="170" width="270" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="policy" value="Policy Framework&#10;PAP + PDP (Drools)&#10;:30969" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#C8E6C9;strokeColor=#1B5E20;fontSize=11;align=center;" vertex="1" parent="1">
+          <mxGeometry x="660" y="170" width="270" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="so" value="SO — Service Orchestrator&#10;:30080" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#C8E6C9;strokeColor=#1B5E20;fontSize=11;fontStyle=1;align=center;" vertex="1" parent="1">
+          <mxGeometry x="370" y="270" width="270" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="aai" value="AAI · SDC&#10;(inventory + VNF catalog)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#C8E6C9;strokeColor=#1B5E20;fontSize=11;align=center;" vertex="1" parent="1">
+          <mxGeometry x="660" y="270" width="270" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="onapnote" value="Drools rule trong PDP:&#10;  tier = 2 → instantiate vnfd-ratelimiter-v1&#10;  tier = 3 → instantiate vnfd-scrubber-v1&#10;  tier = 4 → instantiate vnfd-blackhole-v1" style="text;html=1;align=left;verticalAlign=top;fontSize=10;fillColor=#F1F8E9;strokeColor=#558B2F;rounded=1;spacingLeft=6;spacingTop=4;" vertex="1" parent="1">
+          <mxGeometry x="370" y="360" width="560" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="onapcap" value="SO nhận yêu cầu từ Policy → kubectl create → VNF pod ở ns pad-onap" style="text;html=1;align=center;fontSize=10;fontStyle=2;fillColor=none;strokeColor=none;" vertex="1" parent="1">
+          <mxGeometry x="370" y="438" width="560" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="removednote" value="✗ ĐÃ BỎ: DMaaP Message Router (topic PAD_ONAP_AI_SIGNALS)&#10;Thay đổi: pipeline gọi thẳng CLAMP REST API (POST /restservices/clds/v2/loop/operation)&#10;     thay vì publish event lên DMaaP rồi để CLAMP poll mỗi 15 s.&#10;Lợi: bỏ 15 s poll → latency M1→M4 giảm ~10–15 s.&#10;CLAMP + Policy + SO vẫn nguyên — audit trail và Drools rules còn đầy đủ." style="text;html=1;align=left;verticalAlign=top;fontSize=10;fillColor=#FFF3E0;strokeColor=#E65100;rounded=1;spacingLeft=6;spacingTop=4;fontStyle=0;" vertex="1" parent="1">
+          <mxGeometry x="370" y="465" width="560" height="90" as="geometry" />
+        </mxCell>
+
+        <!-- ========== PAD-ONAP NAMESPACE ========== -->
+        <mxCell id="padns" value="K8s namespace: pad-onap   (pipeline + VNFs, ~16 GB · 6 vCPU)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#0277BD;strokeWidth=1;dashed=1;verticalAlign=top;fontStyle=1;fontSize=11;align=left;spacingLeft=8;spacingTop=4;" vertex="1" parent="1">
+          <mxGeometry x="980" y="130" width="630" height="500" as="geometry" />
+        </mxCell>
+
+        <mxCell id="pipeline" value="pad-onap-pipeline (Deployment)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF9C4;strokeColor=#F57F17;fontStyle=1;fontSize=11;align=center;verticalAlign=top;spacingTop=4;" vertex="1" parent="1">
+          <mxGeometry x="1000" y="170" width="590" height="180" as="geometry" />
+        </mxCell>
+        <mxCell id="m1" value="M1 — NetFlow / sFlow collector&#10;:6343 (UDP) · :7070 (HTTP)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#F57F17;fontSize=10;align=center;" vertex="1" parent="1">
+          <mxGeometry x="1010" y="200" width="180" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="m2" value="M2 — Kafka + Flink&#10;22 features / 1s window" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#F57F17;fontSize=10;align=center;" vertex="1" parent="1">
+          <mxGeometry x="1200" y="200" width="180" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="m3" value="M3 — InferenceEngine&#10;XGBoost + Transformer/LSTM&#10;→ tier · attack_type" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#F57F17;fontSize=10;align=center;" vertex="1" parent="1">
+          <mxGeometry x="1390" y="200" width="190" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="m4pub" value="M4 — CLAMP REST client (thay cho DMaaP publisher)&#10;POST https://clamp:30258/restservices/clds/v2/loop/operation/PAD-ONAP-DDoS-ClosedLoop" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#F57F17;fontSize=10;fontStyle=1;align=center;" vertex="1" parent="1">
+          <mxGeometry x="1010" y="260" width="570" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="latex" value="LatencyTracker exporter :9292/metrics (Prometheus scrape)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#F57F17;fontSize=10;align=center;" vertex="1" parent="1">
+          <mxGeometry x="1010" y="305" width="570" height="35" as="geometry" />
+        </mxCell>
+
+        <!-- VNF pods -->
+        <mxCell id="vnfgroup" value="VNF pods (do SO instantiate khi tier ≥ 2)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#9E9E9E;strokeWidth=1;dashed=1;verticalAlign=top;fontStyle=1;fontSize=11;align=left;spacingLeft=8;spacingTop=4;" vertex="1" parent="1">
+          <mxGeometry x="1000" y="370" width="590" height="160" as="geometry" />
+        </mxCell>
+        <mxCell id="vnf-rl" value="pad-vnf-ratelimiter&#10;Tier 2 · 2 vCPU · 2 GB&#10;token-bucket" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E3F2FD;strokeColor=#1565C0;fontSize=10;align=center;" vertex="1" parent="1">
+          <mxGeometry x="1015" y="410" width="180" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="vnf-sc" value="pad-vnf-scrubber&#10;Tier 3 · 8 vCPU · 16 GB&#10;SYN proxy + scrubbing" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E3F2FD;strokeColor=#1565C0;fontSize=10;align=center;" vertex="1" parent="1">
+          <mxGeometry x="1205" y="410" width="180" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="vnf-bh" value="pad-vnf-blackhole&#10;Tier 4 · 1 vCPU · 1 GB&#10;iptables null-route" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E3F2FD;strokeColor=#1565C0;fontSize=10;align=center;" vertex="1" parent="1">
+          <mxGeometry x="1395" y="410" width="180" height="100" as="geometry" />
+        </mxCell>
+
+        <!-- Victim pod -->
+        <mxCell id="victim" value="pod-victim (giả lập) · 10.244.5.42" style="ellipse;whiteSpace=wrap;html=1;fillColor=#FFEBEE;strokeColor=#C62828;fontSize=11;fontStyle=1;align=center;" vertex="1" parent="1">
+          <mxGeometry x="1100" y="550" width="380" height="60" as="geometry" />
+        </mxCell>
+
+        <!-- ========== VETH BRIDGE ========== -->
+        <mxCell id="veth-in" value="veth-mn-in&#10;10.99.99.1/30" style="rhombus;whiteSpace=wrap;html=1;fillColor=#FFE0B2;strokeColor=#E65100;fontSize=10;fontStyle=1;align=center;" vertex="1" parent="1">
+          <mxGeometry x="780" y="670" width="160" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="veth-out" value="veth-mn-out&#10;10.99.99.2/30" style="rhombus;whiteSpace=wrap;html=1;fillColor=#FFE0B2;strokeColor=#E65100;fontSize=10;fontStyle=1;align=center;" vertex="1" parent="1">
+          <mxGeometry x="780" y="760" width="160" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="vetharrow" style="endArrow=classicThin;startArrow=classicThin;html=1;rounded=0;strokeColor=#E65100;strokeWidth=2;" edge="1" parent="1" source="veth-in" target="veth-out">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="vethlabel" value="veth pair (kernel) — ENTRY DUY NHẤT giữa 2 netns" style="text;html=1;align=center;fontSize=10;fontStyle=2;fillColor=none;strokeColor=none;" vertex="1" parent="1">
+          <mxGeometry x="950" y="710" width="320" height="20" as="geometry" />
+        </mxCell>
+
+        <!-- ========== MN-SANDBOX NETNS ========== -->
+        <mxCell id="sandns" value="netns: mn-sandbox   (SANDBOX — cgroup CPUQuota=600% · MemoryMax=12G   ·   Mininet + Ryu fast-path cùng namespace)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FCE4EC;strokeColor=#AD1457;strokeWidth=2;verticalAlign=top;fontStyle=1;fontSize=12;align=left;spacingLeft=10;spacingTop=4;" vertex="1" parent="1">
+          <mxGeometry x="70" y="830" width="1560" height="470" as="geometry" />
+        </mxCell>
+
+        <!-- Private OVS daemon -->
+        <mxCell id="privovs" value="PRIVATE OVS daemon&#10;/var/run/openvswitch-mn/db.sock&#10;(socket riêng — không thấy br-int của Calico)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFCDD2;strokeColor=#AD1457;fontSize=10;fontStyle=1;align=center;" vertex="1" parent="1">
+          <mxGeometry x="90" y="870" width="240" height="80" as="geometry" />
+        </mxCell>
+
+        <!-- Fat-tree k=4: Core layer -->
+        <mxCell id="corelabel" value="Core" style="text;html=1;align=right;fontSize=10;fontStyle=1;fillColor=none;strokeColor=none;" vertex="1" parent="1">
+          <mxGeometry x="340" y="870" width="40" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="c1" value="c1" style="ellipse;whiteSpace=wrap;html=1;fillColor=#F8BBD0;strokeColor=#880E4F;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="400" y="870" width="40" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="c2" value="c2" style="ellipse;whiteSpace=wrap;html=1;fillColor=#F8BBD0;strokeColor=#880E4F;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="460" y="870" width="40" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="c3" value="c3" style="ellipse;whiteSpace=wrap;html=1;fillColor=#F8BBD0;strokeColor=#880E4F;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="520" y="870" width="40" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="c4" value="c4" style="ellipse;whiteSpace=wrap;html=1;fillColor=#F8BBD0;strokeColor=#880E4F;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="580" y="870" width="40" height="40" as="geometry" />
+        </mxCell>
+
+        <!-- Agg layer (8 switches) -->
+        <mxCell id="agglabel" value="Agg" style="text;html=1;align=right;fontSize=10;fontStyle=1;fillColor=none;strokeColor=none;" vertex="1" parent="1">
+          <mxGeometry x="340" y="940" width="40" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="a0" value="a0" style="ellipse;whiteSpace=wrap;html=1;fillColor=#F48FB1;strokeColor=#880E4F;fontSize=9;" vertex="1" parent="1">
+          <mxGeometry x="390" y="940" width="35" height="35" as="geometry" />
+        </mxCell>
+        <mxCell id="a1" value="a1" style="ellipse;whiteSpace=wrap;html=1;fillColor=#F48FB1;strokeColor=#880E4F;fontSize=9;" vertex="1" parent="1">
+          <mxGeometry x="430" y="940" width="35" height="35" as="geometry" />
+        </mxCell>
+        <mxCell id="a2" value="a2" style="ellipse;whiteSpace=wrap;html=1;fillColor=#F48FB1;strokeColor=#880E4F;fontSize=9;" vertex="1" parent="1">
+          <mxGeometry x="480" y="940" width="35" height="35" as="geometry" />
+        </mxCell>
+        <mxCell id="a3" value="a3" style="ellipse;whiteSpace=wrap;html=1;fillColor=#F48FB1;strokeColor=#880E4F;fontSize=9;" vertex="1" parent="1">
+          <mxGeometry x="520" y="940" width="35" height="35" as="geometry" />
+        </mxCell>
+        <mxCell id="a4" value="a4" style="ellipse;whiteSpace=wrap;html=1;fillColor=#F48FB1;strokeColor=#880E4F;fontSize=9;" vertex="1" parent="1">
+          <mxGeometry x="570" y="940" width="35" height="35" as="geometry" />
+        </mxCell>
+        <mxCell id="a5" value="a5" style="ellipse;whiteSpace=wrap;html=1;fillColor=#F48FB1;strokeColor=#880E4F;fontSize=9;" vertex="1" parent="1">
+          <mxGeometry x="610" y="940" width="35" height="35" as="geometry" />
+        </mxCell>
+        <mxCell id="a6" value="a6" style="ellipse;whiteSpace=wrap;html=1;fillColor=#F48FB1;strokeColor=#880E4F;fontSize=9;" vertex="1" parent="1">
+          <mxGeometry x="660" y="940" width="35" height="35" as="geometry" />
+        </mxCell>
+        <mxCell id="a7" value="a7" style="ellipse;whiteSpace=wrap;html=1;fillColor=#F48FB1;strokeColor=#880E4F;fontSize=9;" vertex="1" parent="1">
+          <mxGeometry x="700" y="940" width="35" height="35" as="geometry" />
+        </mxCell>
+
+        <!-- Edge layer (8 switches) -->
+        <mxCell id="edgelabel" value="Edge" style="text;html=1;align=right;fontSize=10;fontStyle=1;fillColor=none;strokeColor=none;" vertex="1" parent="1">
+          <mxGeometry x="340" y="1000" width="40" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="e0" value="e0" style="ellipse;whiteSpace=wrap;html=1;fillColor=#F06292;strokeColor=#880E4F;fontSize=9;" vertex="1" parent="1">
+          <mxGeometry x="390" y="1000" width="35" height="35" as="geometry" />
+        </mxCell>
+        <mxCell id="e1" value="e1" style="ellipse;whiteSpace=wrap;html=1;fillColor=#F06292;strokeColor=#880E4F;fontSize=9;" vertex="1" parent="1">
+          <mxGeometry x="430" y="1000" width="35" height="35" as="geometry" />
+        </mxCell>
+        <mxCell id="e2" value="e2" style="ellipse;whiteSpace=wrap;html=1;fillColor=#F06292;strokeColor=#880E4F;fontSize=9;" vertex="1" parent="1">
+          <mxGeometry x="480" y="1000" width="35" height="35" as="geometry" />
+        </mxCell>
+        <mxCell id="e3" value="e3" style="ellipse;whiteSpace=wrap;html=1;fillColor=#F06292;strokeColor=#880E4F;fontSize=9;" vertex="1" parent="1">
+          <mxGeometry x="520" y="1000" width="35" height="35" as="geometry" />
+        </mxCell>
+        <mxCell id="e4" value="e4" style="ellipse;whiteSpace=wrap;html=1;fillColor=#F06292;strokeColor=#880E4F;fontSize=9;" vertex="1" parent="1">
+          <mxGeometry x="570" y="1000" width="35" height="35" as="geometry" />
+        </mxCell>
+        <mxCell id="e5" value="e5" style="ellipse;whiteSpace=wrap;html=1;fillColor=#F06292;strokeColor=#880E4F;fontSize=9;" vertex="1" parent="1">
+          <mxGeometry x="610" y="1000" width="35" height="35" as="geometry" />
+        </mxCell>
+        <mxCell id="e6" value="e6" style="ellipse;whiteSpace=wrap;html=1;fillColor=#F06292;strokeColor=#880E4F;fontSize=9;" vertex="1" parent="1">
+          <mxGeometry x="660" y="1000" width="35" height="35" as="geometry" />
+        </mxCell>
+        <mxCell id="e7" value="e7" style="ellipse;whiteSpace=wrap;html=1;fillColor=#F06292;strokeColor=#880E4F;fontSize=9;" vertex="1" parent="1">
+          <mxGeometry x="700" y="1000" width="35" height="35" as="geometry" />
+        </mxCell>
+
+        <!-- Hosts (4 pods of 4 hosts each) -->
+        <mxCell id="hlabel" value="Hosts" style="text;html=1;align=right;fontSize=10;fontStyle=1;fillColor=none;strokeColor=none;" vertex="1" parent="1">
+          <mxGeometry x="335" y="1070" width="50" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="pod0" value="POD 0 — attackers&#10;h0 h1 h2 h3" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFCDD2;strokeColor=#B71C1C;fontSize=10;fontStyle=1;align=center;" vertex="1" parent="1">
+          <mxGeometry x="390" y="1070" width="160" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="pod1" value="POD 1 — benign&#10;h4 h5 h6 h7" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#C8E6C9;strokeColor=#1B5E20;fontSize=10;align=center;" vertex="1" parent="1">
+          <mxGeometry x="560" y="1070" width="160" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="pod2" value="POD 2 — benign&#10;h8 h9 h10 h11" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#C8E6C9;strokeColor=#1B5E20;fontSize=10;align=center;" vertex="1" parent="1">
+          <mxGeometry x="730" y="1070" width="160" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="pod3" value="POD 3 — victim&#10;h12 h13 h14 h15" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFE0B2;strokeColor=#E65100;fontSize=10;fontStyle=1;align=center;" vertex="1" parent="1">
+          <mxGeometry x="900" y="1070" width="160" height="60" as="geometry" />
+        </mxCell>
+
+        <!-- Attack tools box -->
+        <mxCell id="tools" value="Attack tools (Mininet host CLI)&#10;• hping3 --flood -S --rand-source&#10;• iperf3 -u -b 1G&#10;• tcpreplay CICDDoS2019.pcap" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFEBEE;strokeColor=#B71C1C;fontSize=10;align=left;spacingLeft=6;spacingTop=4;verticalAlign=top;" vertex="1" parent="1">
+          <mxGeometry x="1100" y="870" width="260" height="100" as="geometry" />
+        </mxCell>
+
+        <!-- sFlow agent -->
+        <mxCell id="sflow" value="sFlow agent (per OVS bridge)&#10;target = 10.99.99.1:6343&#10;sampling = 64, polling = 5s" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E1F5FE;strokeColor=#0277BD;fontSize=10;align=center;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="1380" y="870" width="230" height="80" as="geometry" />
+        </mxCell>
+
+        <!-- Cleanup note -->
+        <mxCell id="cleanup" value="`sudo mn -c` chỉ tác động bridge trong netns này — không thể xoá br-int của Calico ở root" style="text;html=1;align=center;fontSize=10;fontStyle=2;fillColor=#FFFDE7;strokeColor=#F9A825;rounded=1;spacingLeft=6;spacingTop=4;" vertex="1" parent="1">
+          <mxGeometry x="1100" y="980" width="510" height="30" as="geometry" />
+        </mxCell>
+
+        <!-- ========== DATA FLOW ARROWS (closed loop) ========== -->
+
+        <!-- 1. attack: pod0 → edge → agg → core → agg → edge → pod3 -->
+        <mxCell id="flow1" style="endArrow=classic;html=1;strokeColor=#C62828;strokeWidth=2;curved=1;" edge="1" parent="1" source="pod0" target="e0">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="flow2" style="endArrow=classic;html=1;strokeColor=#C62828;strokeWidth=2;curved=1;" edge="1" parent="1" source="e0" target="a0">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="flow3" style="endArrow=classic;html=1;strokeColor=#C62828;strokeWidth=2;curved=1;" edge="1" parent="1" source="a0" target="c1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="flow4" style="endArrow=classic;html=1;strokeColor=#C62828;strokeWidth=2;curved=1;" edge="1" parent="1" source="c1" target="a6">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="flow5" style="endArrow=classic;html=1;strokeColor=#C62828;strokeWidth=2;curved=1;" edge="1" parent="1" source="a6" target="e7">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="flow6" style="endArrow=classic;html=1;strokeColor=#C62828;strokeWidth=2;curved=1;" edge="1" parent="1" source="e7" target="pod3">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- 2. sandbox egress: edge e7 → veth-out (via sandbox border) -->
+        <mxCell id="flow7" value="① attack data" style="endArrow=classic;html=1;strokeColor=#C62828;strokeWidth=3;fontColor=#C62828;fontStyle=1;fontSize=11;exitX=1;exitY=0.5;entryX=0.5;entryY=1;curved=1;" edge="1" parent="1" source="pod3" target="veth-out">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1100" y="870" />
+              <mxPoint x="860" y="850" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- 3. veth-in → victim pod (through Calico) -->
+        <mxCell id="flow8" value="② via veth → Calico CNI → pod-victim" style="endArrow=classic;html=1;strokeColor=#C62828;strokeWidth=3;fontColor=#C62828;fontStyle=1;fontSize=11;" edge="1" parent="1" source="veth-in" target="victim">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- 4. sFlow → collector m1 -->
+        <mxCell id="flow9" value="③ sFlow telemetry" style="endArrow=classic;html=1;strokeColor=#0277BD;strokeWidth=3;dashed=1;fontColor=#0277BD;fontStyle=1;fontSize=11;" edge="1" parent="1" source="sflow" target="m1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1495" y="600" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- 5. M1 → M2 → M3 → DMaaP publish -->
+        <mxCell id="flow10" style="endArrow=classic;html=1;strokeColor=#F57F17;strokeWidth=2;" edge="1" parent="1" source="m1" target="m2">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="flow11" style="endArrow=classic;html=1;strokeColor=#F57F17;strokeWidth=2;" edge="1" parent="1" source="m2" target="m3">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="flow12" value="④ CLAMP REST POST (sync)" style="endArrow=classic;html=1;strokeColor=#1B5E20;strokeWidth=3;fontColor=#1B5E20;fontStyle=1;fontSize=11;" edge="1" parent="1" source="m4pub" target="clamp">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- 5. CLAMP → Policy → SO -->
+        <mxCell id="flow14" value="⑤ eval Drools" style="endArrow=classic;html=1;strokeColor=#1B5E20;strokeWidth=2;fontColor=#1B5E20;fontSize=10;" edge="1" parent="1" source="clamp" target="policy">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="flow15" value="⑥ instantiate cmd" style="endArrow=classic;html=1;strokeColor=#1B5E20;strokeWidth=2;fontColor=#1B5E20;fontSize=10;" edge="1" parent="1" source="policy" target="so">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- 6. SO → VNF pod -->
+        <mxCell id="flow16" value="⑦ kubectl create" style="endArrow=classic;html=1;strokeColor=#1565C0;strokeWidth=3;fontColor=#1565C0;fontStyle=1;fontSize=11;" edge="1" parent="1" source="so" target="vnf-sc">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="505" y="345" />
+              <mxPoint x="1295" y="345" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- 7. VNF scrubber → mitigate traffic to victim -->
+        <mxCell id="flow17" value="⑧ mitigate" style="endArrow=classic;html=1;strokeColor=#1565C0;strokeWidth=2;dashed=1;fontColor=#1565C0;fontStyle=1;fontSize=10;" edge="1" parent="1" source="vnf-sc" target="victim">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- ========== LEGEND ========== -->
+        <mxCell id="legend" value="Closed-loop sequence (không có DMaaP — pipeline gọi CLAMP REST trực tiếp)&#10;① Mininet sinh DDoS h0 → h15 qua fat-tree (cross-pod 3 hop)&#10;② Traffic thoát sandbox qua veth pair → Calico CNI → pod-victim&#10;③ sFlow agent gửi sample về collector (M1)&#10;④ M1→M2→M3 → tier ≥ 2 → POST CLAMP REST (đồng bộ, không qua broker)&#10;⑤ CLAMP forward → Policy PDP eval Drools → ⑥ cmd tới SO&#10;⑦ SO.instantiate qua kubectl → VNF pod up → ⑧ mitigate traffic" style="text;html=1;align=left;verticalAlign=top;fontSize=10;fillColor=#F3E5F5;strokeColor=#6A1B9A;rounded=1;spacingLeft=8;spacingTop=6;" vertex="1" parent="1">
+          <mxGeometry x="90" y="560" width="650" height="100" as="geometry" />
+        </mxCell>
+
+        <!-- isolation legend -->
+        <mxCell id="iso" value="4 lớp cô lập (bắt buộc đủ 4)&#10;A. netns mn-sandbox        — chặn mn -c xoá K8s bridge&#10;B. Private OVS daemon       — flow table tách rời&#10;C. cgroup CPU 600% / RAM 12G — chặn flood starve apiserver&#10;D. iptables FORWARD DROP    — chặn spoof IP thoát Internet" style="text;html=1;align=left;verticalAlign=top;fontSize=10;fillColor=#FFEBEE;strokeColor=#B71C1C;rounded=1;spacingLeft=8;spacingTop=6;fontStyle=0;" vertex="1" parent="1">
+          <mxGeometry x="755" y="560" width="430" height="80" as="geometry" />
+        </mxCell>
+
+        <!-- color key -->
+        <mxCell id="key" value="Màu sắc&#10;đỏ = attack data · cam = M2/M3 pipeline&#10;xanh lá = ONAP closed-loop · xanh dương = VNF + telemetry&#10;hồng = sandbox · vàng = pipeline pod" style="text;html=1;align=left;verticalAlign=top;fontSize=10;fillColor=#FAFAFA;strokeColor=#616161;rounded=1;spacingLeft=8;spacingTop=6;" vertex="1" parent="1">
+          <mxGeometry x="1200" y="560" width="410" height="80" as="geometry" />
+        </mxCell>
+
+
+        <!-- ============================================================== -->
+        <!-- ========== FAST PATH: RYU CONTROLLER (sandbox netns) ========== -->
+        <!-- ============================================================== -->
+        <mxCell id="ryubox" value="Ryu fast-path controller (in sandbox netns)&#10;ryu-manager pipeline.s5_fastpath.ryu_app + ryu.topology.switches&#10;OpenFlow 1.3 :6633 · REST API :8080 · L2 learning baseline" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E1F5FE;strokeColor=#01579B;strokeWidth=2;fontSize=10;fontStyle=1;align=center;verticalAlign=top;spacingTop=4;" vertex="1" parent="1">
+          <mxGeometry x="1100" y="1170" width="510" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="ryu-rest" value="REST endpoints&#10;POST /pad/tier&#10;GET /pad/topology&#10;GET /pad/flows" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#01579B;fontSize=9;align=center;" vertex="1" parent="1">
+          <mxGeometry x="1110" y="1200" width="120" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="ryu-of" value="OpenFlow Flow-Mod&#10;tier 2 → ratelimit&#10;tier 3 → redirect&#10;tier 4 → drop" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#01579B;fontSize=9;align=center;" vertex="1" parent="1">
+          <mxGeometry x="1240" y="1200" width="120" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="ryu-app-mod" value="apps installed:&#10;· L2 learning&#10;· PadFastPath&#10;· topology.switches" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#01579B;fontSize=9;align=center;" vertex="1" parent="1">
+          <mxGeometry x="1370" y="1200" width="120" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="ryu-lib" value="tier_to_flowmod.py&#10;FlowDirective map&#10;idle_timeout=30s" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#01579B;fontSize=9;align=center;" vertex="1" parent="1">
+          <mxGeometry x="1500" y="1200" width="100" height="80" as="geometry" />
+        </mxCell>
+
+        <!-- ============================================================== -->
+        <!-- ========== FRONTEND CONSOLE (above the server box) ========== -->
+        <!-- ============================================================== -->
+        <mxCell id="ui-box" value="Operator console (browser — outside the server)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#FFF8E1;strokeColor=#F57C00;strokeWidth=2;dashed=1;verticalAlign=top;fontStyle=1;fontSize=12;align=left;spacingLeft=10;spacingTop=4;" vertex="1" parent="1">
+          <mxGeometry x="1680" y="50" width="290" height="1100" as="geometry" />
+        </mxCell>
+        <mxCell id="ui-browser" value="Chrome / Firefox&#10;&#10;http://&lt;server&gt;:8088" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#F57C00;fontSize=11;fontStyle=1;align=center;" vertex="1" parent="1">
+          <mxGeometry x="1700" y="90" width="250" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="ui-ws" value="WebSocket /ws (1 Hz)&#10;push: topology + state + flows" style="text;html=1;align=center;fontSize=9;fontStyle=2;fillColor=none;strokeColor=none;" vertex="1" parent="1">
+          <mxGeometry x="1700" y="155" width="250" height="20" as="geometry" />
+        </mxCell>
+
+        <mxCell id="ui-cy" value="Cytoscape.js — fat-tree viz&#10;&#10;· core / agg / edge / host nodes&#10;· attack path tô đỏ&#10;· fast-path rule = nét đứt xanh lá&#10;· victim / attacker badge" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#F57C00;fontSize=10;align=center;verticalAlign=top;spacingTop=6;" vertex="1" parent="1">
+          <mxGeometry x="1700" y="190" width="250" height="160" as="geometry" />
+        </mxCell>
+
+        <mxCell id="ui-scenarios" value="Scenario buttons&#10;S1 baseline · S2 SYN low&#10;S3 SYN high · S4 UDP amp&#10;S5 multi-vec · S6 carpet&#10;S7 slow-rate · S8 burst&#10;[ Reset / clear rules ]" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#F57C00;fontSize=10;align=center;verticalAlign=top;spacingTop=6;" vertex="1" parent="1">
+          <mxGeometry x="1700" y="360" width="250" height="140" as="geometry" />
+        </mxCell>
+
+        <mxCell id="ui-status" value="Status panel&#10;· active tier badge (0..4)&#10;· fast-path latency (ms)&#10;· slow-path stage + latency&#10;· victim pps / drop pps&#10;· event log (last 200)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#F57C00;fontSize=10;align=center;verticalAlign=top;spacingTop=6;" vertex="1" parent="1">
+          <mxGeometry x="1700" y="510" width="250" height="150" as="geometry" />
+        </mxCell>
+
+        <!-- FastAPI backend (lives in root netns alongside K8s) -->
+        <mxCell id="backend" value="FastAPI backend  frontend/backend.py&#10;uvicorn :8088   (root netns)&#10;&#10;Aggregates:&#10;· Ryu  /pad/*  (10.99.99.2:8080)&#10;· kubectl get pods (VNF status)&#10;· Prometheus :9190 (metrics)&#10;· scenario_state.json (shared file)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFE0B2;strokeColor=#E65100;strokeWidth=2;fontSize=10;fontStyle=1;align=center;verticalAlign=top;spacingTop=4;" vertex="1" parent="1">
+          <mxGeometry x="1700" y="680" width="250" height="160" as="geometry" />
+        </mxCell>
+
+        <mxCell id="ui-state-file" value="/tmp/pad-onap/scenario_state.json&#10;(shared by Ryu app, orchestrator, runner)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFDE7;strokeColor=#F9A825;fontSize=9;fontStyle=2;align=center;" vertex="1" parent="1">
+          <mxGeometry x="1700" y="850" width="250" height="40" as="geometry" />
+        </mxCell>
+
+        <mxCell id="ui-runner" value="scripts/run_scenario.sh Sx&#10;spawned by backend (POST /api/scenario/Sx)&#10;→ writes state, fires hping3/iperf3" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#F57C00;fontSize=10;align=center;" vertex="1" parent="1">
+          <mxGeometry x="1700" y="900" width="250" height="70" as="geometry" />
+        </mxCell>
+
+        <mxCell id="ui-note" value="UI = read-only quan sát + 1 nút trigger&#10;Mọi quyết định tier do M3 quyết, không phải UI.&#10;UI chỉ visualize và phát lệnh scenario.&#10;Không có lệnh CRUD VNF từ UI." style="text;html=1;align=left;verticalAlign=top;fontSize=9;fillColor=#FFFDE7;strokeColor=#F9A825;rounded=1;spacingLeft=6;spacingTop=4;" vertex="1" parent="1">
+          <mxGeometry x="1700" y="990" width="250" height="80" as="geometry" />
+        </mxCell>
+
+        <!-- ============================================================== -->
+        <!-- ========== DUAL PATH ARROWS ========== -->
+        <!-- ============================================================== -->
+
+        <!-- M4 publisher → Ryu (FAST path) -->
+        <mxCell id="flow-fast" value="④A FAST PATH&#10;POST /pad/tier&#10;~ms" style="endArrow=classic;html=1;strokeColor=#3FB950;strokeWidth=3;fontColor=#1B5E20;fontStyle=1;fontSize=11;dashed=0;" edge="1" parent="1" source="m4pub" target="ryubox">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1640" y="320" />
+              <mxPoint x="1640" y="1170" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- Ryu → OVS switches (Flow-Mod) -->
+        <mxCell id="flow-flowmod" value="⑤A Flow-Mod ratelimit/redirect/drop" style="endArrow=classic;html=1;strokeColor=#3FB950;strokeWidth=2;fontColor=#1B5E20;fontStyle=1;fontSize=10;dashed=1;" edge="1" parent="1" source="ryubox" target="privovs">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="210" y="1170" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- Frontend backend → Ryu REST poll -->
+        <mxCell id="flow-be-ryu" value="poll /pad/*" style="endArrow=classic;html=1;strokeColor=#F57C00;strokeWidth=2;dashed=1;fontColor=#E65100;fontSize=10;" edge="1" parent="1" source="backend" target="ryu-rest">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Browser → Backend WebSocket -->
+        <mxCell id="flow-ws" style="endArrow=classic;startArrow=classic;html=1;strokeColor=#F57C00;strokeWidth=2;" edge="1" parent="1" source="ui-browser" target="backend">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Backend → kubectl (VNF probe) -->
+        <mxCell id="flow-be-k8s" value="kubectl get pods" style="endArrow=classic;html=1;strokeColor=#F57C00;strokeWidth=1;dashed=1;fontColor=#E65100;fontSize=9;" edge="1" parent="1" source="backend" target="vnfgroup">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1660" y="450" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- Backend → runner (POST /api/scenario) → sandbox attack tools -->
+        <mxCell id="flow-runner" value="spawn run_scenario.sh" style="endArrow=classic;html=1;strokeColor=#F57C00;strokeWidth=2;dashed=1;fontColor=#E65100;fontSize=9;" edge="1" parent="1" source="ui-runner" target="tools">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1650" y="935" />
+              <mxPoint x="1380" y="935" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- ============================================================== -->
+        <!-- ========== UPDATED LEGEND ========== -->
+        <!-- ============================================================== -->
+        <mxCell id="legend2" value="DUAL-PATH closed loop&#10;&#10;FAST PATH (Ryu, ~ms)&#10;  ④A M3 → POST /pad/tier → Ryu&#10;  ⑤A Flow-Mod tới mọi OVS switch&#10;       · tier 2 → ratelimit&#10;       · tier 3 → redirect tới scrubber IP&#10;       · tier 4 → drop ngay trên switch&#10;&#10;SLOW PATH (ONAP, ~giây)&#10;  ④ M3 → POST CLAMP REST&#10;  ⑤ CLAMP → Policy Drools eval&#10;  ⑥ Policy → SO instantiate&#10;  ⑦ SO → kubectl create VNF pod&#10;  ⑧ VNF mitigate persistent&#10;&#10;Fast = cắt máu ngay; Slow = lâu dài + audit." style="text;html=1;align=left;verticalAlign=top;fontSize=10;fillColor=#E8F5E9;strokeColor=#1B5E20;rounded=1;spacingLeft=8;spacingTop=6;" vertex="1" parent="1">
+          <mxGeometry x="60" y="1320" width="380" height="120" as="geometry" />
+        </mxCell>
+
+        <mxCell id="ryu-note" value="Vai trò Ryu trong testbed này:&#10;· Thay thế OVS standalone MAC learning ➜ OVS chạy failMode='secure'&#10;· Nhận POST /pad/tier từ M3, ra Flow-Mod ms-level&#10;· KHÔNG thay thế ONAP — chạy SONG SONG (slow path vẫn dựng VNF pod lâu dài)&#10;· Tự clear rule khi idle_timeout=30s&#10;· Connect tới OVS qua 127.0.0.1:6633 trong netns mn-sandbox" style="text;html=1;align=left;verticalAlign=top;fontSize=10;fillColor=#E1F5FE;strokeColor=#01579B;rounded=1;spacingLeft=8;spacingTop=6;fontStyle=0;" vertex="1" parent="1">
+          <mxGeometry x="460" y="1320" width="600" height="120" as="geometry" />
+        </mxCell>
+
+        <mxCell id="ui-flow" value="Frontend visualization pipeline:&#10;1. Click S3 → POST /api/scenario/S3 → backend spawn run_scenario.sh&#10;2. Runner ghi scenario_state.json (attacker/victim/type) + chạy hping3 trong sandbox&#10;3. Pipeline M3 phát hiện → publish() dual path → fast + slow&#10;4. Backend WS /ws push state + topology mỗi 1s&#10;5. Cytoscape re-render: đường tấn công đỏ, fast-path rules nét đứt xanh lá&#10;6. Sidebar hiển thị fast/slow latency, tier badge, pps metrics, event log" style="text;html=1;align=left;verticalAlign=top;fontSize=10;fillColor=#FFF8E1;strokeColor=#F57C00;rounded=1;spacingLeft=8;spacingTop=6;" vertex="1" parent="1">
+          <mxGeometry x="1080" y="1320" width="570" height="120" as="geometry" />
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

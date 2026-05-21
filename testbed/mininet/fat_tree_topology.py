@@ -74,7 +74,9 @@ def build_fat_tree(k: int = 4, use_remote_ctrl: bool = False) -> Mininet:
          f'(core={n_core}  agg={n_pods*agg_per_pod}  edge={n_pods*edge_per_pod}  '
          f'hosts={n_pods*edge_per_pod*hosts_per_ed})\n')
 
-    # Chế độ Standalone: Không cần controller binary, switch tự học MAC
+    fail_mode = 'secure' if use_remote_ctrl else 'standalone'
+    # Remote-controller mode is fail-secure: traffic should flow only through
+    # Ryu's explicit fat-tree rules, not OVS standalone MAC flooding.
     net = Mininet(
         controller = RemoteController if use_remote_ctrl else None,
         switch     = OVSSwitch,
@@ -88,7 +90,7 @@ def build_fat_tree(k: int = 4, use_remote_ctrl: bool = False) -> Mininet:
     core_sw = []
     for i in range(n_core):
         s = net.addSwitch(f'c{i+1}', protocols='OpenFlow13',
-                          dpid=_dpid(0x10, i), failMode='standalone')
+                          dpid=_dpid(0x10, i), failMode=fail_mode)
         core_sw.append(s)
 
     # ── Pods ─────────────────────────────────────────────────────────────────
@@ -98,11 +100,11 @@ def build_fat_tree(k: int = 4, use_remote_ctrl: bool = False) -> Mininet:
         edge_sw = []
         for a in range(agg_per_pod):
             s = net.addSwitch(f'a{p}_{a}', protocols='OpenFlow13',
-                              dpid=_dpid(0x20, p, a), failMode='standalone')
+                              dpid=_dpid(0x20, p, a), failMode=fail_mode)
             agg_sw.append(s)
         for e in range(edge_per_pod):
             s = net.addSwitch(f'e{p}_{e}', protocols='OpenFlow13',
-                              dpid=_dpid(0x30, p, e), failMode='standalone')
+                              dpid=_dpid(0x30, p, e), failMode=fail_mode)
             edge_sw.append(s)
 
         # edge ↔ hosts
@@ -137,7 +139,7 @@ def build_fat_tree(k: int = 4, use_remote_ctrl: bool = False) -> Mininet:
 
 def attacker_victim(net: Mininet):
     """Return (attacker, victim) host pair with maximum hop count."""
-    hosts = net.hosts
+    hosts = [h for h in net.hosts if h.name.startswith('h')]
     return hosts[0], hosts[-1]
 
 

@@ -1,0 +1,33 @@
+{
+  "scenario": "S3_gradual_syn_ramp",
+  "n_windows": 120,
+  "max_tier_reached": 3,
+  "tier_dist": {
+    "0": 33,
+    "1": 6,
+    "2": 15,
+    "3": 66,
+    "4": 0
+  },
+  "proactive_count": 0,
+  "e2e_latency_ms": {
+    "p50": 2502.85,
+    "p95": 3852.67,
+    "p99": 3972.65,
+    "n": 2
+  },
+  "tier2_latency_ms": {
+    "p50": 1003.04,
+    "p95": 1003.04,
+    "p99": 1003.04,
+    "n": 1
+  },
+  "tier3_latency_ms": {
+    "p50": 4002.65,
+    "p95": 4002.65,
+    "p99": 4002.65,
+    "n": 1
+  },
+  "sla_ok": true,
+  "pass_fail": "PASS"
+}

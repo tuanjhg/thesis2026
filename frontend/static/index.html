@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PAD-ONAP Topology Demo</title>
+  <link rel="stylesheet" href="style.css" />
+  <script src="https://unpkg.com/cytoscape@3.28.1/dist/cytoscape.min.js"></script>
+</head>
+<body>
+
+<!-- ─── 1. HEADER ───────────────────────────────────────────────────────── -->
+<header id="hdr">
+  <div class="hdr-left">
+    <svg class="logo" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+      <path d="M12 2 L21 6 V12 C21 17 17 21 12 22 C7 21 3 17 3 12 V6 Z"
+            fill="#2563EB" opacity="0.15" stroke="#2563EB" stroke-width="1.5"/>
+      <path d="M12 7 L16 9 V13 C16 15.5 14 17.5 12 18 C10 17.5 8 15.5 8 13 V9 Z"
+            fill="#2563EB"/>
+    </svg>
+    <h1>PAD-ONAP Topology Demo</h1>
+  </div>
+  <div class="hdr-chips">
+    <span class="chip"        id="chip-scenario">Scenario: —</span>
+    <span class="chip chip-mode" id="chip-mode">Mode: AI-assisted</span>
+    <span class="chip chip-tier" id="chip-tier">Tier: T0</span>
+    <span class="chip chip-health"  id="chip-health">System Healthy</span>
+  </div>
+  <div class="hdr-right">
+    <span id="ts" class="ts muted">—</span>
+    <button class="icon-btn" title="Help" aria-label="Help">?</button>
+  </div>
+</header>
+
+<!-- ─── 2. KPI ROW ──────────────────────────────────────────────────────── -->
+<section id="kpis">
+  <article class="kpi card">
+    <header><span class="kpi-ico blue">⇅</span><span>Traffic Rate</span></header>
+    <div class="kpi-main">
+      <span class="kpi-value"  id="kpi-traffic-value">0.00</span>
+      <span class="kpi-unit">Gbps</span>
+    </div>
+    <div class="kpi-sub" id="kpi-traffic-sub">— vs 5 min ago</div>
+    <svg class="spark" id="spark-traffic" viewBox="0 0 100 30"></svg>
+  </article>
+
+  <article class="kpi card">
+    <header><span class="kpi-ico red">◎</span><span>Attack Score</span></header>
+    <div class="kpi-main">
+      <span class="kpi-value" id="kpi-attack-value">0</span>
+      <span class="kpi-unit">/ 100</span>
+    </div>
+    <div class="kpi-sub">
+      <span class="badge" id="kpi-attack-badge">Low</span>
+    </div>
+    <svg class="spark" id="spark-attack" viewBox="0 0 100 30"></svg>
+  </article>
+
+  <article class="kpi card">
+    <header><span class="kpi-ico purple">⤴</span><span>Forecast Risk</span></header>
+    <div class="kpi-main">
+      <span class="kpi-value kpi-text" id="kpi-forecast-value">Low</span>
+    </div>
+    <div class="kpi-sub">
+      <span id="kpi-forecast-dir">stable</span>
+      <span class="muted" style="margin-left:8px">horizon
+        <span id="kpi-forecast-horizon">30</span>s</span>
+    </div>
+    <svg class="spark" id="spark-forecast" viewBox="0 0 100 30"></svg>
+  </article>
+
+  <article class="kpi card">
+    <header><span class="kpi-ico green">⛨</span><span>CNF Status</span></header>
+    <div class="kpi-main">
+      <span class="kpi-value kpi-text" id="kpi-cnf-value">Healthy</span>
+    </div>
+    <div class="kpi-sub">
+      <span id="kpi-cnf-counts">0 Active · 0 Degraded · 0 Failed</span>
+    </div>
+    <div class="donut" id="kpi-cnf-donut" aria-hidden="true">
+      <svg viewBox="0 0 36 36">
+        <circle cx="18" cy="18" r="15.9" fill="none"
+                stroke="#E2E8F0" stroke-width="3.5"/>
+        <circle cx="18" cy="18" r="15.9" fill="none"
+                stroke="#059669" stroke-width="3.5"
+                stroke-dasharray="100 0" id="donut-arc"
+                transform="rotate(-90 18 18)"/>
+      </svg>
+      <span class="donut-label" id="donut-label">1/1</span>
+    </div>
+  </article>
+</section>
+
+<!-- ─── 3-5. MAIN GRID ──────────────────────────────────────────────────── -->
+<div id="grid">
+
+  <!-- 3. LEFT PANEL — scenario controls -->
+  <aside id="left">
+    <section class="card">
+      <h2>Scenario Controls</h2>
+      <div class="btn-row">
+        <button id="btn-start" class="btn primary">▶ Start Attack</button>
+        <button id="btn-stop"  class="btn">■ Stop</button>
+      </div>
+      <div class="toggle-row">
+        <label class="toggle">
+          <input type="checkbox" id="tgl-ai" checked />
+          <span class="slider"></span>
+          <span class="toggle-label">Enable AI</span>
+        </label>
+        <label class="toggle">
+          <input type="checkbox" id="tgl-rule" />
+          <span class="slider rule"></span>
+          <span class="toggle-label">Compare Rule-only</span>
+        </label>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Choose Scenario</h2>
+      <div id="scenario-list" class="scenario-list"></div>
+    </section>
+
+    <section class="card">
+      <h2>Scenario Profile</h2>
+      <dl class="meta" id="profile">
+        <dt>Attack Type</dt>      <dd id="pr-type">—</dd>
+        <dt>Intensity</dt>        <dd id="pr-intensity">—</dd>
+        <dt>Target Service</dt>   <dd id="pr-target">—</dd>
+        <dt>Duration</dt>         <dd id="pr-duration">—</dd>
+      </dl>
+    </section>
+
+    <section class="card">
+      <h2>Legend</h2>
+      <ul class="legend">
+        <li><span class="lg attack"></span> Attack traffic</li>
+        <li><span class="lg telemetry"></span> Telemetry / data</li>
+        <li><span class="lg ai"></span> AI detection / forecast</li>
+        <li><span class="lg mitigation"></span> Mitigation / protected</li>
+        <li><span class="lg inactive"></span> Inactive / unavailable</li>
+      </ul>
+    </section>
+  </aside>
+
+  <!-- 4. CENTER — topology canvas -->
+  <main id="center" class="card">
+    <header class="pane-header">
+      <h2>Topology</h2>
+      <span class="muted">Network → Streaming &amp; AI → ONAP Closed Loop</span>
+      <span class="viz-toggle">
+        <label class="mini-toggle">
+          <input type="checkbox" id="tgl-particles" checked> particles
+        </label>
+        <label class="mini-toggle">
+          <input type="checkbox" id="tgl-pps" checked> pps labels
+        </label>
+      </span>
+    </header>
+    <div id="cy-wrap">
+      <div id="cy"></div>
+      <canvas id="cy-fx" aria-hidden="true"></canvas>
+      <div id="edge-labels" aria-hidden="true"></div>
+
+      <!-- Step explainer overlay: pinned bottom-left of topology canvas -->
+      <div id="step-card">
+        <div class="step-head">
+          <span class="step-num" id="step-num">0/8</span>
+          <span class="step-title" id="step-title">System idle</span>
+        </div>
+        <div class="step-body" id="step-body">
+          Pick a scenario to start.
+        </div>
+      </div>
+
+      <!-- Pipeline trace strip: bottom of canvas (waterfall) -->
+      <div id="trace-strip" aria-label="Pipeline trace (waterfall)">
+        <div class="trace-head">Latest pipeline wave (ms)</div>
+        <div id="trace-bars"></div>
+        <div id="trace-axis"></div>
+      </div>
+    </div>
+  </main>
+
+  <!-- 5. RIGHT PANEL — node details -->
+  <aside id="right" class="card">
+    <header class="pane-header">
+      <h2>Node Details</h2>
+      <span class="muted" id="rd-hint">click any node</span>
+    </header>
+    <div id="rd-body">
+      <div class="rd-empty muted">
+        Select a topology node to see its runtime details.
+      </div>
+    </div>
+  </aside>
+</div>
+
+<!-- ─── 6. BOTTOM TIMELINE ──────────────────────────────────────────────── -->
+<section id="timeline" class="card">
+  <header class="pane-header">
+    <h2>Event Timeline</h2>
+    <label class="autoscroll muted">
+      <input type="checkbox" id="tl-auto" checked> auto-scroll
+    </label>
+  </header>
+  <ol id="timeline-list"></ol>
+</section>
+
+<script src="app.js"></script>
+</body>
+</html>

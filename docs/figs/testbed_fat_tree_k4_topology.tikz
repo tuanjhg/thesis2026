@@ -1,0 +1,60 @@
+\begin{tikzpicture}[
+  font=\sffamily\tiny,
+  >=Latex,
+  sw/.style={draw, rounded corners=2pt, fill=gray!12, minimum width=8mm,
+             minimum height=5mm, inner sep=2pt},
+  host/.style={draw, rounded corners=2pt, fill=blue!8, draw=blue!60,
+               minimum width=7mm, minimum height=5mm, inner sep=2pt},
+  link/.style={draw=gray!55, line width=0.35pt},
+  pathlink/.style={draw=red!65!black, line width=1pt},
+  podbox/.style={draw=gray!45, rounded corners=3pt, fill=gray!3}
+]
+
+\foreach \i/\x in {1/1.0,2/3.0,3/5.0,4/7.0} {
+  \node[sw] (c\i) at (\x,0) {c\i};
+}
+\node[font=\sffamily\scriptsize\bfseries] at (4.0,0.45) {Core layer};
+
+\foreach \p/\x/\hstart in {0/0/0,1/2.9/4,2/5.8/8,3/8.7/12} {
+  \draw[podbox] (\x-0.55,-0.9) rectangle (\x+2.35,-4.05);
+  \node[font=\sffamily\scriptsize\bfseries] at (\x+0.9,-1.1) {Pod \p};
+
+  \node[sw] (a\p0) at (\x+0.25,-1.65) {a\p\_0};
+  \node[sw] (a\p1) at (\x+1.55,-1.65) {a\p\_1};
+  \node[sw] (e\p0) at (\x+0.25,-2.65) {e\p\_0};
+  \node[sw] (e\p1) at (\x+1.55,-2.65) {e\p\_1};
+
+  \pgfmathtruncatemacro{\hA}{\hstart}
+  \pgfmathtruncatemacro{\hB}{\hstart+1}
+  \pgfmathtruncatemacro{\hC}{\hstart+2}
+  \pgfmathtruncatemacro{\hD}{\hstart+3}
+  \node[host] (h\hA) at (\x-0.10,-3.55) {h\hA};
+  \node[host] (h\hB) at (\x+0.60,-3.55) {h\hB};
+  \node[host] (h\hC) at (\x+1.20,-3.55) {h\hC};
+  \node[host] (h\hD) at (\x+1.90,-3.55) {h\hD};
+
+  \draw[link] (e\p0) -- (a\p0);
+  \draw[link] (e\p0) -- (a\p1);
+  \draw[link] (e\p1) -- (a\p0);
+  \draw[link] (e\p1) -- (a\p1);
+  \draw[link] (h\hA) -- (e\p0);
+  \draw[link] (h\hB) -- (e\p0);
+  \draw[link] (h\hC) -- (e\p1);
+  \draw[link] (h\hD) -- (e\p1);
+
+  \draw[link] (a\p0) -- (c1);
+  \draw[link] (a\p0) -- (c2);
+  \draw[link] (a\p1) -- (c3);
+  \draw[link] (a\p1) -- (c4);
+}
+
+\draw[pathlink] (h0) -- (e00) -- (a00) -- (c1) -- (a30) -- (e31) -- (h15);
+\node[host, fill=red!10, draw=red!65!black] at (0.0,-4.35) {h0 attacker};
+\node[host, fill=red!10, draw=red!65!black] at (10.2,-4.35) {h15 victim};
+\draw[pathlink, ->] (0.7,-4.35) -- node[above, font=\tiny]
+  {example attack path} (9.45,-4.35);
+
+\node[align=left, font=\tiny] at (4.0,-4.65)
+  {$k=4$: 4 core, 8 aggregation, 8 edge, 16 hosts; 4 equal-cost core paths.};
+
+\end{tikzpicture}

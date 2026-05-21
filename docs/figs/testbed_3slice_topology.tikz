@@ -1,0 +1,58 @@
+\begin{tikzpicture}[
+  font=\sffamily\scriptsize,
+  >=Latex,
+  node/.style={draw, rounded corners=2pt, align=center, inner sep=4pt, minimum height=7mm},
+  sw/.style={node, fill=gray!12, draw=gray!70, minimum width=13mm},
+  host/.style={node, fill=blue!7, draw=blue!55, minimum width=21mm},
+  vnf/.style={node, fill=orange!10, draw=orange!75!black, minimum width=23mm},
+  embb/.style={->, very thick, blue!70!black},
+  urllc/.style={->, very thick, green!45!black},
+  mmtc/.style={->, very thick, teal!70!black},
+  standby/.style={->, thick, dashed, orange!80!black},
+  attack/.style={<->, very thick, dashed, red!70!black}
+]
+
+\node[sw] (r1) at (2.6,-1.0) {r1};
+\node[sw] (r2) at (7.4,-1.0) {r2};
+\node[sw] (r3) at (2.6,-3.45) {r3};
+
+\node[host] (embbs) at (0,-0.25) {embb\_src\\10.1.0.1};
+\node[vnf]  (fw)    at (5.0,-0.25) {vnf\_fw\\T1 ACL};
+\node[host] (embbd) at (10.0,-0.25) {embb\_dst\\10.1.0.2};
+
+\node[host] (urls) at (0,-1.8) {urllc\_src\\10.2.0.1};
+\node[vnf]  (lb)   at (5.0,-1.8) {vnf\_lb\\T2 pre-warm};
+\node[host] (urld) at (10.0,-1.8) {urllc\_dst\\10.2.0.2};
+
+\node[host] (mms)  at (0,-3.45) {mmtc\_src\\10.3.0.1};
+\node[host] (mmd)  at (10.0,-3.45) {mmtc\_dst\\10.3.0.2};
+
+\node[vnf] (scrub) at (6.1,-4.75) {vnf\_scrubber\\T3 DDoS scrub};
+\node[vnf] (iso)   at (8.8,-4.75) {vnf\_isolation\\T4 tenant isolation};
+
+\draw[embb] (embbs) -- node[above, font=\tiny] {1 Gbps / 2 ms} (r1);
+\draw[embb] (r1) -- node[above, font=\tiny] {1 ms} (fw);
+\draw[embb] (fw) -- node[above, font=\tiny] {1 ms} (r2);
+\draw[embb] (r2) -- node[above, font=\tiny] {1 Gbps / 2 ms} (embbd);
+
+\draw[urllc] (urls) -- node[below, font=\tiny] {100 Mbps / 0.5 ms} (r1);
+\draw[urllc] (r1) -- node[below, font=\tiny] {0.2 ms} (lb);
+\draw[urllc] (lb) -- node[below, font=\tiny] {0.2 ms} (r2);
+\draw[urllc] (r2) -- node[below, font=\tiny] {100 Mbps / 0.5 ms} (urld);
+
+\draw[mmtc] (mms) -- node[above, font=\tiny] {10 Mbps / 5 ms} (r3);
+\draw[mmtc] (r3) -- node[above, font=\tiny] {100 Mbps / 2 ms} (r2);
+\draw[mmtc] (r2) -- node[above, font=\tiny] {10 Mbps / 5 ms} (mmd);
+
+\draw[attack] (r1) -- node[left, font=\tiny, text=red!70!black]
+  {cross-slice vector} (r3);
+\draw[standby] (scrub) -- (r2);
+\draw[standby] (iso) -- (r2);
+
+\node[draw=none, align=left, font=\tiny] at (1.0,-5.0)
+  {\textcolor{blue!70!black}{eMBB: 10.1.0.0/24}\\
+   \textcolor{green!45!black}{URLLC: 10.2.0.0/24}\\
+   \textcolor{teal!70!black}{mMTC: 10.3.0.0/24}\\
+   \textcolor{red!70!black}{dashed: attack vector}};
+
+\end{tikzpicture}

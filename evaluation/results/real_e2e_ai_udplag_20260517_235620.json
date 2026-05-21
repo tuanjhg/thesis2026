@@ -1,0 +1,294 @@
+{
+  "timestamp": "20260517_235620",
+  "mode": "ai",
+  "config": {
+    "k": 2,
+    "duration": 5,
+    "window_sec": 5.0,
+    "broker": "localhost:9092"
+  },
+  "phases": {
+    "baseline": 1779036921.161,
+    "attack": 1779036951.412,
+    "recovery": 1779036956.46,
+    "end": 1779036978.53
+  },
+  "series": {
+    "tiers": [
+      0
+    ],
+    "proactive": [
+      false
+    ],
+    "window_timestamps": [
+      1779036958.533
+    ],
+    "time_axis_rel_s": [
+      7.120872974395752
+    ]
+  },
+  "iperf": {
+    "legit_h2_to_victim": [
+      {
+        "t_offset": 1.0,
+        "mbps": 5.26,
+        "lost_pct": null,
+        "epoch": 1779036922.160399
+      },
+      {
+        "t_offset": 2.0,
+        "mbps": 5.24,
+        "lost_pct": null,
+        "epoch": 1779036923.160399
+      },
+      {
+        "t_offset": 3.0,
+        "mbps": 5.24,
+        "lost_pct": null,
+        "epoch": 1779036924.160399
+      },
+      {
+        "t_offset": 4.0,
+        "mbps": 5.24,
+        "lost_pct": null,
+        "epoch": 1779036925.160399
+      },
+      {
+        "t_offset": 5.0,
+        "mbps": 5.24,
+        "lost_pct": null,
+        "epoch": 1779036926.160399
+      },
+      {
+        "t_offset": 6.0,
+        "mbps": 5.23,
+        "lost_pct": null,
+        "epoch": 1779036927.160399
+      },
+      {
+        "t_offset": 7.0,
+        "mbps": 5.24,
+        "lost_pct": null,
+        "epoch": 1779036928.160399
+      },
+      {
+        "t_offset": 8.0,
+        "mbps": 5.24,
+        "lost_pct": null,
+        "epoch": 1779036929.160399
+      },
+      {
+        "t_offset": 9.0,
+        "mbps": 5.24,
+        "lost_pct": null,
+        "epoch": 1779036930.160399
+      }
+    ],
+    "victim_received": [
+      {
+        "t_offset": 1.0,
+        "mbps": 5.26,
+        "lost_pct": 0.22,
+        "epoch": 1779036922.160399
+      },
+      {
+        "t_offset": 1.0,
+        "mbps": 10.5,
+        "lost_pct": 34.0,
+        "epoch": 1779036922.160399
+      },
+      {
+        "t_offset": 2.0,
+        "mbps": 5.24,
+        "lost_pct": 0.0,
+        "epoch": 1779036923.160399
+      },
+      {
+        "t_offset": 2.0,
+        "mbps": 10.5,
+        "lost_pct": 0.0,
+        "epoch": 1779036923.160399
+      },
+      {
+        "t_offset": 3.0,
+        "mbps": 5.24,
+        "lost_pct": 0.0,
+        "epoch": 1779036924.160399
+      },
+      {
+        "t_offset": 3.0,
+        "mbps": 10.5,
+        "lost_pct": 0.0,
+        "epoch": 1779036924.160399
+      },
+      {
+        "t_offset": 4.0,
+        "mbps": 10.5,
+        "lost_pct": 0.0,
+        "epoch": 1779036925.160399
+      },
+      {
+        "t_offset": 4.0,
+        "mbps": 5.24,
+        "lost_pct": 0.0,
+        "epoch": 1779036925.160399
+      },
+      {
+        "t_offset": 5.0,
+        "mbps": 5.24,
+        "lost_pct": 0.0,
+        "epoch": 1779036926.160399
+      },
+      {
+        "t_offset": 5.0,
+        "mbps": 10.5,
+        "lost_pct": 0.0,
+        "epoch": 1779036926.160399
+      },
+      {
+        "t_offset": 6.0,
+        "mbps": 5.23,
+        "lost_pct": 0.0,
+        "epoch": 1779036927.160399
+      },
+      {
+        "t_offset": 6.0,
+        "mbps": 10.5,
+        "lost_pct": 0.0,
+        "epoch": 1779036927.160399
+      },
+      {
+        "t_offset": 7.0,
+        "mbps": 5.24,
+        "lost_pct": 0.0,
+        "epoch": 1779036928.160399
+      },
+      {
+        "t_offset": 7.0,
+        "mbps": 10.5,
+        "lost_pct": 0.0,
+        "epoch": 1779036928.160399
+      },
+      {
+        "t_offset": 8.0,
+        "mbps": 5.24,
+        "lost_pct": 0.0,
+        "epoch": 1779036929.160399
+      },
+      {
+        "t_offset": 8.0,
+        "mbps": 10.5,
+        "lost_pct": 0.0,
+        "epoch": 1779036929.160399
+      },
+      {
+        "t_offset": 9.0,
+        "mbps": 10.5,
+        "lost_pct": 0.0,
+        "epoch": 1779036930.160399
+      },
+      {
+        "t_offset": 9.0,
+        "mbps": 5.24,
+        "lost_pct": 0.0,
+        "epoch": 1779036930.160399
+      },
+      {
+        "t_offset": 10.0,
+        "mbps": 2.45,
+        "lost_pct": 0.0,
+        "epoch": 1779036931.160399
+      },
+      {
+        "t_offset": 10.0,
+        "mbps": 4.92,
+        "lost_pct": 0.0,
+        "epoch": 1779036931.160399
+      }
+    ],
+    "background_traffic": [
+      {
+        "t_offset": 1.0,
+        "mbps": 10.5,
+        "lost_pct": null,
+        "epoch": 1779036922.160399
+      },
+      {
+        "t_offset": 2.0,
+        "mbps": 10.5,
+        "lost_pct": null,
+        "epoch": 1779036923.160399
+      },
+      {
+        "t_offset": 3.0,
+        "mbps": 10.5,
+        "lost_pct": null,
+        "epoch": 1779036924.160399
+      },
+      {
+        "t_offset": 4.0,
+        "mbps": 10.5,
+        "lost_pct": null,
+        "epoch": 1779036925.160399
+      },
+      {
+        "t_offset": 5.0,
+        "mbps": 10.5,
+        "lost_pct": null,
+        "epoch": 1779036926.160399
+      },
+      {
+        "t_offset": 6.0,
+        "mbps": 10.5,
+        "lost_pct": null,
+        "epoch": 1779036927.160399
+      },
+      {
+        "t_offset": 7.0,
+        "mbps": 10.5,
+        "lost_pct": null,
+        "epoch": 1779036928.160399
+      },
+      {
+        "t_offset": 8.0,
+        "mbps": 10.5,
+        "lost_pct": null,
+        "epoch": 1779036929.160399
+      },
+      {
+        "t_offset": 9.0,
+        "mbps": 10.5,
+        "lost_pct": null,
+        "epoch": 1779036930.160399
+      }
+    ]
+  },
+  "metrics": {
+    "mode": "ai",
+    "n_windows": 1,
+    "first_window_pos": null,
+    "first_window_tier3": null,
+    "detect_lag_s": null,
+    "classification": {
+      "positive_threshold_tier": 2,
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "tn": 1,
+      "tpr": 0.0,
+      "fpr": 0.0,
+      "precision": 0.0,
+      "f1": 0.0
+    },
+    "goodput_legit_mbps_by_phase": {
+      "baseline": 5.2411111111111115,
+      "attack": 0.0,
+      "recovery": 0.0
+    },
+    "goodput_victim_mbps_by_phase": {
+      "baseline": 7.452,
+      "attack": 0.0,
+      "recovery": 0.0
+    }
+  }
+}

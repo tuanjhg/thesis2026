@@ -44,6 +44,7 @@ if str(_PROJECT_ROOT) not in sys.path:
 
 from pipeline.s4_orchestration.tier_mapper     import (
     Tier, TierDecision, TIER_LABEL, TIER_VNF_PROFILE,
+    TIER_DEFAULT_CNF_PROFILE,
 )
 from pipeline.s4_orchestration.policy_engine   import PolicyEngine, PolicyAction
 from pipeline.s4_orchestration.sla_allocator   import SLAAllocator
@@ -55,6 +56,7 @@ from pipeline.s4_orchestration.latency_tracker import LatencyTracker, LatencyRec
 from evaluation.scenarios import (
     SCENARIOS, ScenarioSpec, ScenarioResult,
 )
+from pipeline.s3_ai.inference_layer import TRACK_A_FEATURES
 from pipeline.s4_orchestration.orchestrator import (
     DEFAULT_TENANTS, VNF_OVERHEAD_MBPS,
 )
@@ -74,11 +76,21 @@ IDX_SYN_RATIO      = 9
 
 def threshold_decide(x: np.ndarray) -> TierDecision:
     """Pure-rule tier selection. No ML, no forecast."""
-    pkt_rate   = float(x[IDX_PKT_RATE])
-    syn_ratio  = float(x[IDX_SYN_RATIO])
-    udp_frac   = float(x[IDX_PROTO_UDP])
-    icmp_frac  = float(x[IDX_PROTO_ICMP])
-    src_ent    = float(x[IDX_SRC_IP_ENTROPY])
+    if len(x) == 22:
+        f = {name: float(x[i]) for i, name in enumerate(TRACK_A_FEATURES)}
+        pkt_rate = f['flow_packets_per_sec']
+        total_pkts = f['total_fwd_packets'] + f['total_bwd_packets']
+        syn_ratio = (f['syn_flag_count'] / total_pkts) if total_pkts > 0 else 0.0
+        proto = int(f['protocol'])
+        udp_frac = 1.0 if proto == 17 else 0.0
+        icmp_frac = 1.0 if proto == 1 else 0.0
+        src_ent = 0.0
+    else:
+        pkt_rate   = float(x[IDX_PKT_RATE])
+        syn_ratio  = float(x[IDX_SYN_RATIO])
+        udp_frac   = float(x[IDX_PROTO_UDP])
+        icmp_frac  = float(x[IDX_PROTO_ICMP])
+        src_ent    = float(x[IDX_SRC_IP_ENTROPY])
 
     tier = Tier.NORMAL
     reasons = []
@@ -107,11 +119,20 @@ def threshold_decide(x: np.ndarray) -> TierDecision:
         tier         = tier,
         label        = TIER_LABEL[tier],
         confidence   = conf,
-        p_attack_30s = 0.0,          # no forecast
+        p_attack_1min = 0.0,         # no forecast
+        p_attack_5min = 0.0,
+        p_attack_15min = 0.0,
         attack_type  = 'RuleBased',
-        attack_class = 0 if tier == Tier.NORMAL else 1,
+        attack_class_id = 0 if tier == Tier.NORMAL else 1,
+        triggered_horizon = None,
         proactive    = False,         # threshold baseline is never proactive
-        vnf_profile  = TIER_VNF_PROFILE.get(tier),
+        cnf_profile  = TIER_DEFAULT_CNF_PROFILE.get(tier),
+        vnfd_profile = TIER_VNF_PROFILE.get(tier),
+        source_ip_prefix = None,
+        target_ip_prefix = None,
+        tenant_id = None,
+        severity = 'INFO' if tier < Tier.PREEMPT else 'MAJOR',
+        dedup_key = None,
         reason       = reason,
     )
 

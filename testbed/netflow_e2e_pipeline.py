@@ -38,7 +38,11 @@ import matplotlib.pyplot as plt
 _ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_ROOT))
 
-from pipeline.s3_ai.live_pipeline import KafkaFeatureConsumer, features_dict_to_array
+from pipeline.s3_ai.live_pipeline import (
+    KafkaFeatureConsumer,
+    features_dict_to_array,
+    _flow_features_from_snapshot,
+)
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
 logger = logging.getLogger('E2E_Eval')
@@ -137,9 +141,12 @@ def make_orchestrator(mode: str, args):
         return None
     if mode == 'ai':
         from pipeline.s4_orchestration.orchestrator import Orchestrator
+        os.environ.setdefault('PAD_HEALTH_PORT', '19298')
         return Orchestrator(
             model_dir    = args.model_dir,
             data_dir     = args.data_dir,
+            mode         = 'legacy',
+            device       = 'cpu',
             eval_mode    = True,
             shap_enabled = args.shap,
             latency_port = 9298,
@@ -309,7 +316,20 @@ class E2EEvaluator:
             return
         x = features_dict_to_array(feats)
 
-        rec = self.orch._step(x)
+        try:
+            rec = self.orch._step(
+                x,
+                source_device_id='mininet-fat-tree',
+                ip_meta={
+                    'source_ip_prefix': raw.get('source_ip_prefix'),
+                    'target_ip_prefix': raw.get('target_ip_prefix'),
+                    'tenant_id': raw.get('tenant_id'),
+                },
+            )
+        except TypeError as exc:
+            if 'source_device_id' not in str(exc) and 'ip_meta' not in str(exc):
+                raise
+            rec = self.orch._step(x)
         tier = rec['tier'] if isinstance(rec, dict) else int(getattr(rec, 'tier', 0))
         proact = bool(rec.get('proactive', False)) if isinstance(rec, dict) else False
         self.results_tier.append(tier)
@@ -320,6 +340,56 @@ class E2EEvaluator:
         print(f"Window {len(self.results_tier):03d} | {self.mode.upper():<8s} | T{tier}{marker}")
 
     # ── Mininet test driver ────────────────────────────────────────────────────
+    def _step_from_collector(self) -> None:
+        """Poll local Mininet collector REST API directly, bypassing Kafka/Flink."""
+        if self.remote_pipeline or self.collector_host is None:
+            return
+        out = self.collector_host.cmd(
+            "curl -s --max-time 2 http://127.0.0.1:7070/flows/latest"
+        ).strip()
+        if not out:
+            return
+        try:
+            raw = json.loads(out)
+        except Exception:
+            return
+        if raw.get("error") or not raw.get("features"):
+            return
+        ts = raw.get("timestamp")
+        if ts is None or ts == self._last_vec_ts:
+            return
+        self._last_vec_ts = ts
+
+        x = _flow_features_from_snapshot(raw.get("features", {}))
+        try:
+            rec = self.orch._step(
+                x,
+                source_device_id='mininet-fat-tree',
+                ip_meta={
+                    'source_ip_prefix': raw.get('source_ip_prefix'),
+                    'target_ip_prefix': raw.get('target_ip_prefix'),
+                    'tenant_id': raw.get('tenant_id'),
+                },
+            )
+        except TypeError as exc:
+            if 'source_device_id' not in str(exc) and 'ip_meta' not in str(exc):
+                raise
+            rec = self.orch._step(x)
+        tier = rec['tier'] if isinstance(rec, dict) else int(getattr(rec, 'tier', 0))
+        proact = bool(rec.get('proactive', False)) if isinstance(rec, dict) else False
+        self.results_tier.append(tier)
+        self.results_proact.append(proact)
+        self.timestamps.append(time.time())
+
+        marker = ' [PROACTIVE]' if proact else ''
+        print(f"Window {len(self.results_tier):03d} | {self.mode.upper():<8s} | T{tier}{marker}")
+
+    def _step(self) -> None:
+        if getattr(self.args, 'transport', 'kafka') == 'http':
+            self._step_from_collector()
+        elif self.args.transport == 'kafka':
+            self._step_from_kafka()
+
     def run_mininet_test(self):
         from mininet.net import Mininet
         from testbed.mininet.fat_tree_topology import build_fat_tree, attacker_victim
@@ -354,7 +424,7 @@ class E2EEvaluator:
             # Skip local flink_processor + Kafka feature consumer entirely
             self.flink_proc = None
             self.kafka_consumer = None
-        else:
+        elif self.args.transport == 'kafka':
             # ── Local mode (original behaviour) ──────────────────────────────
             # 0. Ensure Kafka is up
             ensure_kafka(broker, compose_dir, skip_setup=self.args.skip_kafka_setup)
@@ -376,6 +446,10 @@ class E2EEvaluator:
                 broker=broker,
                 group_id=f'pad-e2e-{self.mode}-{int(time.time())}',
             )
+        else:
+            logger.info("*** transport=http: bỏ Kafka/Flink, poll trực tiếp NetFlow collector /flows/latest")
+            self.flink_proc = None
+            self.kafka_consumer = None
 
         # 3. Start Mininet
         logger.info(f"*** Khởi tạo Mininet Fat-Tree k={self.args.k}")
@@ -387,7 +461,13 @@ class E2EEvaluator:
         os.system("pkill -9 -f netflow_collector/collector.py > /dev/null 2>&1")
 
         net = build_fat_tree(k=self.args.k)
+        nat = None
+        if not self.remote_pipeline and self.args.transport == 'kafka' and self.args.collector_kafka:
+            logger.info("*** Thêm NAT cho Mininet hosts để collector publish được Kafka Docker")
+            nat = net.addNAT('nat0')
         net.start()
+        if nat is not None:
+            nat.configDefault()
         time.sleep(3)
 
         # Pre-check tools
@@ -420,15 +500,39 @@ class E2EEvaluator:
         # docker0 IP works; we accept --kafka-broker passthrough.
         kafka_for_collector = self.args.collector_kafka or broker
 
+        collector_log = _ROOT / 'evaluation' / 'results' / f'collector_{self.mode}.log'
+        collector_log.parent.mkdir(parents=True, exist_ok=True)
+        if self.args.transport == 'kafka':
+            try:
+                broker_host, broker_port = kafka_for_collector.rsplit(':', 1)
+                collector.cmd(
+                    f'echo "[Collector probe] route:" > "{collector_log}"; '
+                    f'ip route >> "{collector_log}" 2>&1; '
+                    f'echo "[Collector probe] nc {broker_host} {broker_port}:" >> "{collector_log}"; '
+                    f'timeout 3 nc -vz {broker_host} {broker_port} >> "{collector_log}" 2>&1 || true'
+                )
+            except Exception:
+                pass
+        else:
+            collector.cmd(f'echo "[Collector] transport=http; Kafka disabled" > "{collector_log}"')
+        kafka_arg = (
+            f'--kafka-broker {kafka_for_collector} '
+            if self.args.transport == 'kafka'
+            else ''
+        )
         cmd = (
-            f'python3 -u "{collector_script}" '
+            f'"{sys.executable}" -u "{collector_script}" '
             f'--mode netflow --port 6343 --api-port 7070 '
             f'--interval {self.window_sec} '
-            f'--kafka-broker {kafka_for_collector} '
-            f'> /tmp/collector.log 2>&1 &'
+            f'{kafka_arg}'
+            f'>> "{collector_log}" 2>&1 &'
         )
         logger.info(f"*** Khởi động NetFlow Collector trên {collector.name} ({collector_ip})")
-        logger.info(f"    Kafka broker for collector: {kafka_for_collector}")
+        logger.info(
+            f"    Kafka broker for collector: {kafka_for_collector}"
+            if self.args.transport == 'kafka'
+            else "    Kafka disabled: evaluator polls collector HTTP directly"
+        )
         collector.cmd(cmd)
         time.sleep(5)
 
@@ -438,14 +542,14 @@ class E2EEvaluator:
             logger.info(f"    ✓ Collector health: {health.strip()}")
         else:
             logger.warning(f"    ⚠ Collector health check failed: {health.strip()[:200]}")
-            logger.warning(f"      Xem log: cat /tmp/collector.log")
+            logger.warning(f"      Xem log: {collector_log}")
 
         # 5. Start softflowd on every Mininet host
         attacker, victim = attacker_victim(net)
         logger.info(f"*** Attacker: {attacker.name} → Victim: {victim.name}")
 
         for host in net.hosts:
-            if host.name == collector.name:
+            if host.name == collector.name or host.name.startswith('nat'):
                 continue
             host.cmd(
                 f'softflowd -i {host.intf().name} -n {collector_ip}:6343 '
@@ -471,7 +575,7 @@ class E2EEvaluator:
         logger.info(">>> Phase 1: Baseline (Normal traffic) - 30 giây")
         self.phase_t['baseline'] = time.time()
         while time.time() - self.phase_t['baseline'] < 30:
-            self._step_from_kafka()
+            self._step()
             time.sleep(1.0)
 
         # 8. Phase 2 — Attack dispatched by --attack-class
@@ -489,7 +593,7 @@ class E2EEvaluator:
         attacker.cmd(attack_cmd)
         self.phase_t['attack'] = time.time()
         while time.time() - self.phase_t['attack'] < self.args.duration:
-            self._step_from_kafka()
+            self._step()
             time.sleep(1.0)
 
         # 9. Phase 3
@@ -497,7 +601,7 @@ class E2EEvaluator:
         attacker.cmd('pkill hping3')
         self.phase_t['recovery'] = time.time()
         while time.time() - self.phase_t['recovery'] < 20:
-            self._step_from_kafka()
+            self._step()
             time.sleep(1.0)
         self.phase_t['end'] = time.time()
 
@@ -743,6 +847,8 @@ if __name__ == '__main__':
     parser.add_argument('--collector-kafka', default=None,
                         help='Kafka broker address as seen from Mininet host netns. '
                              'Default = same as --broker (works when broker bound to 0.0.0.0).')
+    parser.add_argument('--transport', choices=['kafka', 'http'], default='kafka',
+                        help='Feature transport: kafka/Flink path or direct collector HTTP polling.')
     parser.add_argument('--model-dir', default=str(_ROOT/'pad_onap_v3'/'models'))
     parser.add_argument('--data-dir',  default=str(_ROOT/'pad_onap_v3'/'processed'))
     parser.add_argument('--shap', action='store_true',
