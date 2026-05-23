@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>PAD-ONAP Topology Demo</title>
-  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="style.css?v=20260523-path-note" />
   <!-- Cytoscape: try local first, fall back to 2 CDNs -->
   <script src="cytoscape.min.js" onerror="
     this.onerror=null;
@@ -47,6 +47,12 @@
     </label>
   </div>
   <div class="hdr-right">
+    <div class="view-tools" aria-label="View controls">
+      <button class="view-btn" id="btn-view-focus" type="button">Focus</button>
+      <button class="view-btn active" id="btn-view-kpis" type="button">KPI</button>
+      <button class="view-btn active" id="btn-view-panels" type="button">Panels</button>
+      <button class="view-btn active" id="btn-view-timeline" type="button">Timeline</button>
+    </div>
     <span id="ts" class="ts muted">—</span>
     <button class="icon-btn" title="Help" aria-label="Help">?</button>
   </div>
@@ -205,7 +211,7 @@
             <span class="lg-dot host"></span>host
             <span class="lg-dot attacker"></span>attacker
             <span class="lg-dot victim"></span>victim
-            <span class="lg-line path"></span>attack path
+            <span class="lg-line path"></span>selected path
           </span>
         </header>
         <div id="cy-fabric"></div>
@@ -245,6 +251,6 @@
   <ol id="timeline-list"></ol>
 </section>
 
-<script src="app.js"></script>
+<script src="app.js?v=20260523-path-note"></script>
 </body>
 </html>

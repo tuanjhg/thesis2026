@@ -266,6 +266,7 @@ def _build_fabric(state: dict) -> dict:
         "nodes": nodes, "edges": edges,
         "attacker": f"h{attacker_id}" if attacker_id is not None else "",
         "victim":   f"h{victim_id}"   if victim_id   is not None else "",
+        "path_note": "selected path; one ECMP route is shown",
         "path_active": bool(path_edges and inbound > 0),
         "particles": min(6.0, 1.5 + 0.0001 * inbound) if inbound > 0 else 0,
     }

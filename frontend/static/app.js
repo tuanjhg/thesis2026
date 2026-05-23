@@ -47,18 +47,22 @@
     style: [
       { selector: 'node', style: {
           'label': 'data(label)', 'color': C.text, 'font-size': 12,
-          'font-weight': 600,
+          'font-weight': 650,
           'text-valign': 'bottom', 'text-margin-y': 6, 'text-halign': 'center',
           'background-color': '#fff',
           'border-color': '#CBD5E1', 'border-width': 1.5,
-          'width': 56, 'height': 56,
-          'text-wrap': 'wrap', 'text-max-width': 110 } },
+          'z-index': 20,
+          'z-compound-depth': 'top',
+          'width': 64, 'height': 64,
+          'text-wrap': 'wrap', 'text-max-width': 118 } },
       { selector: 'node:parent', style: {
           'label': 'data(label)', 'font-size': 11, 'font-weight': 700,
           'color': C.muted, 'text-valign': 'top', 'text-halign': 'left',
           'text-margin-y': -6, 'text-margin-x': 10,
           'background-opacity': 0.4,
           'border-width': 1, 'border-style': 'dashed', 'padding': 20,
+          'z-index': 1,
+          'z-compound-depth': 'bottom',
           'shape': 'roundrectangle' } },
       { selector: 'node#L1', style: {
           'background-color': C.layerBg.L1,
@@ -102,17 +106,15 @@
       { selector: 'node.status-error',   style: { 'border-color': C.red } },
       { selector: 'node.selected',  style: {
           'border-color': '#1D4ED8', 'border-width': 4,
-          'shadow-blur': 12, 'shadow-color': '#1D4ED8',
-          'shadow-opacity': 0.4 } },
+          'background-color': '#DBEAFE' } },
       { selector: 'node.narration-focus', style: {
           'border-width': 4, 'border-color': '#1D4ED8',
-          'background-color': '#DBEAFE',
-          'shadow-blur': 16, 'shadow-color': '#2563EB',
-          'shadow-opacity': 0.35 } },
+          'background-color': '#DBEAFE' } },
       { selector: 'node.inactive',  style: { 'opacity': 0.35 } },
       // Edges
       { selector: 'edge', style: {
           'curve-style': 'bezier', 'line-color': '#CBD5E1', 'width': 1.5,
+          'z-index': 10,
           'target-arrow-shape': 'triangle',
           'target-arrow-color': '#CBD5E1',
           'label': 'data(label)', 'font-size': 9, 'color': C.muted,
@@ -141,9 +143,9 @@
       { selector: 'edge.highlighted', style: { 'width': 4 } },
     ],
     layout: { name: 'preset' },
-    wheelSensitivity: 0.15,
     minZoom: 0.4, maxZoom: 2,
   });
+  window.__padCy = cy;
 
   // ───────────────────────────────────────────────────────────────────────────
   // DOM helpers
@@ -153,6 +155,32 @@
   const setHTML = (id, v) => { const el = $(id); if (el) el.innerHTML = v; };
   const fmt = (n, d = 0) => Number(n || 0).toLocaleString(
     undefined, { minimumFractionDigits: d, maximumFractionDigits: d });
+
+  function syncOverlayToTarget(target, overlay, ctx) {
+    if (!target || !overlay) return null;
+    const parent = overlay.parentElement;
+    const targetRect = target.getBoundingClientRect();
+    const parentRect = parent.getBoundingClientRect();
+    const width = Math.max(1, Math.min(targetRect.width, window.innerWidth * 2));
+    const height = Math.max(1, Math.min(targetRect.height, window.innerHeight * 2));
+
+    overlay.style.left = `${targetRect.left - parentRect.left}px`;
+    overlay.style.top = `${targetRect.top - parentRect.top}px`;
+    overlay.style.width = `${width}px`;
+    overlay.style.height = `${height}px`;
+
+    if (overlay instanceof HTMLCanvasElement && ctx) {
+      const dpr = window.devicePixelRatio || 1;
+      const nextW = Math.round(width * dpr);
+      const nextH = Math.round(height * dpr);
+      if (overlay.width !== nextW || overlay.height !== nextH) {
+        overlay.width = nextW;
+        overlay.height = nextH;
+      }
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+    return { width, height };
+  }
 
   // ───────────────────────────────────────────────────────────────────────────
   // Topology render
@@ -178,7 +206,9 @@
         topo.edges.forEach(e => cy.add({
           data: { id: e.id, source: e.source, target: e.target,
                   type: e.type, label: e.label || '', status: e.status || '' } }));
-        cy.fit(undefined, 40);
+        cy.resize();
+        cy.fit(cy.elements().not(':parent'), 90);
+        cy.center();
         topologyHash = sig;
         console.log('[PAD] topology rendered',
                     topo.nodes.length, 'nodes,', topo.edges.length, 'edges');
@@ -205,6 +235,7 @@
         if (e.status === 'active')   el.addClass('status-active flowing');
         if (e.status === 'inactive') el.addClass('status-inactive');
       });
+      cy.resize();
     }
   }
 
@@ -586,29 +617,31 @@
           'text-valign': 'center', 'text-halign': 'center',
           'background-color': '#fff',
           'border-color': '#CBD5E1', 'border-width': 1,
-          'width': 20, 'height': 20 } },
+          'z-index': 10,
+          'width': 22, 'height': 22 } },
       { selector: 'node[kind = "core"]', style: {
           'background-color': '#DBEAFE', 'border-color': C.blue,
           'border-width': 1.5, 'shape': 'round-rectangle',
-          'width': 28, 'height': 18 } },
+          'width': 34, 'height': 22 } },
       { selector: 'node[kind = "agg"]', style: {
           'background-color': '#EDE9FE', 'border-color': C.purple,
-          'shape': 'round-rectangle', 'width': 26, 'height': 18 } },
+          'shape': 'round-rectangle', 'width': 32, 'height': 22 } },
       { selector: 'node[kind = "edge"]', style: {
           'background-color': '#CFFAFE', 'border-color': C.cyan,
-          'shape': 'round-rectangle', 'width': 26, 'height': 16 } },
+          'shape': 'round-rectangle', 'width': 32, 'height': 20 } },
       { selector: 'node[kind = "host"]', style: {
           'background-color': '#D1FAE5', 'border-color': C.green,
-          'shape': 'ellipse', 'width': 16, 'height': 16, 'font-size': 8 } },
+          'shape': 'ellipse', 'width': 20, 'height': 20, 'font-size': 8 } },
       { selector: 'node[role = "attacker"]', style: {
           'background-color': '#FECACA', 'border-color': C.red,
-          'border-width': 3, 'width': 22, 'height': 22 } },
+          'border-width': 3, 'width': 26, 'height': 26 } },
       { selector: 'node[role = "victim"]', style: {
           'background-color': '#FED7AA', 'border-color': C.orange,
-          'border-width': 3, 'width': 22, 'height': 22 } },
+          'border-width': 3, 'width': 26, 'height': 26 } },
       { selector: 'edge', style: {
           'curve-style': 'straight',
           'line-color': '#E2E8F0', 'width': 1,
+          'z-index': 1,
           'target-arrow-shape': 'none' } },
       { selector: 'edge.on-path', style: {
           'line-color': C.red, 'width': 2.5,
@@ -618,10 +651,10 @@
       { selector: 'edge.on-path.flowing', style: {
           'line-dash-pattern': [6, 4] } },
     ],
-    wheelSensitivity: 0.15,
     minZoom: 0.5, maxZoom: 3,
     autoungrabify: true,         // hosts are immobile (it's a network map)
   });
+  window.__padCyFabric = cyFabric;
 
   // Fabric particle engine (separate canvas overlay)
   let fabricFx = null;
@@ -634,19 +667,15 @@
     if (!wrap) return;
     fabricFx = document.createElement('canvas');
     Object.assign(fabricFx.style, {
-      position: 'absolute', top: '24px', left: '0', right: '0', bottom: '0',
+      position: 'absolute',
       pointerEvents: 'none',
+      zIndex: '2',
     });
     wrap.style.position = 'relative';
     wrap.appendChild(fabricFx);
     fabricFxCtx = fabricFx.getContext('2d');
-    const resize = () => {
-      const r = fabricFx.getBoundingClientRect();
-      fabricFx.width = r.width * devicePixelRatio;
-      fabricFx.height = r.height * devicePixelRatio;
-      fabricFxCtx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
-    };
-    new ResizeObserver(resize).observe(fabricFx);
+    const resize = () => syncOverlayToTarget($('cy-fabric'), fabricFx, fabricFxCtx);
+    new ResizeObserver(resize).observe($('cy-fabric'));
     setTimeout(resize, 50);
   }
 
@@ -695,7 +724,9 @@
       fab.edges.forEach(e => cyFabric.add({
         data: { id: e.id, source: e.source, target: e.target,
                 on_path: e.on_path } }));
-      cyFabric.fit(undefined, 12);
+      cyFabric.resize();
+      cyFabric.fit(undefined, 18);
+      cyFabric.center();
       fabricHash = sig;
     } else {
       // Update node roles (attacker/victim) on host-name change
@@ -725,9 +756,10 @@
       });
     }
     // Update meta label
+    const pathNote = fab.path_note ? ` · ${fab.path_note}` : '';
     setText('fabric-meta',
       `fat-tree k=${fab.k} · ${fab.n_hosts} hosts · ` +
-      `${fab.attacker || '—'} → ${fab.victim || '—'}`);
+      `${fab.attacker || '—'} → ${fab.victim || '—'}${pathNote}`);
   }
 
   cyFabric.on('pan zoom resize', () => { fabricParticles = []; });
@@ -738,6 +770,7 @@
   // ───────────────────────────────────────────────────────────────────────────
   const fx = $('cy-fx');
   const fxCtx = fx.getContext('2d');
+  const ppsLayer = $('edge-labels');
   const fxState = {
     enabled: true,
     particles: [],          // {edgeId, t, color, size, speed}
@@ -755,12 +788,10 @@
   };
 
   function fxResize() {
-    const r = fx.getBoundingClientRect();
-    fx.width = r.width * devicePixelRatio;
-    fx.height = r.height * devicePixelRatio;
-    fxCtx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+    syncOverlayToTarget($('cy'), fx, fxCtx);
+    syncOverlayToTarget($('cy'), ppsLayer, null);
   }
-  new ResizeObserver(fxResize).observe(fx);
+  new ResizeObserver(fxResize).observe($('cy'));
   setTimeout(fxResize, 50);
 
   function updateEdgeMeta(edges) {
@@ -846,7 +877,6 @@
   // ───────────────────────────────────────────────────────────────────────────
   // Live pps labels on edges
   // ───────────────────────────────────────────────────────────────────────────
-  const ppsLayer = $('edge-labels');
   let ppsEnabled = true;
 
   function fmtPps(n) {
@@ -982,6 +1012,12 @@
     renderHeader(s);
     renderKPIs(s.kpis);
     renderTimeline(s.history);
+    if (s.scenario && s.scenario !== 'idle') {
+      __activeScenario = s.scenario;
+      document.querySelectorAll('.sc').forEach(el =>
+        el.classList.toggle('active', el.dataset.id === s.scenario));
+      setProfileFromScenario(window.__scenarioMap?.[s.scenario]);
+    }
     const aiOn = s.mode !== 'rule_only';
     $('tgl-ai').checked   = aiOn;
     $('tgl-rule').checked = !aiOn;
@@ -1001,10 +1037,62 @@
     ws.onclose = () => setTimeout(connect, 2000);
   }
 
+  function setupViewControls() {
+    const params = new URLSearchParams(location.search);
+    const prefs = {
+      focus: params.get('focus') === '1' || params.get('focus') === 'topology',
+      kpis: true,
+      panels: true,
+      timeline: true,
+    };
+    const setActive = (id, active) => {
+      const btn = $(id);
+      if (btn) btn.classList.toggle('active', active);
+    };
+    const refreshGraphs = () => {
+      cy.resize();
+      cy.fit(cy.elements().not(':parent'), prefs.focus ? 55 : 90);
+      cy.center();
+      cyFabric.resize();
+      cyFabric.fit(undefined, prefs.focus ? 28 : 18);
+      cyFabric.center();
+      fxResize();
+      if (fabricFxCtx && fabricFx) {
+        syncOverlayToTarget($('cy-fabric'), fabricFx, fabricFxCtx);
+      }
+      if (window.__lastEdges) renderPpsLabels(window.__lastEdges);
+    };
+    const applyViewControls = () => {
+      document.body.classList.toggle('focus-view', prefs.focus);
+      document.body.classList.toggle('hide-kpis', !prefs.kpis);
+      document.body.classList.toggle('hide-panels', !prefs.panels);
+      document.body.classList.toggle('hide-timeline', !prefs.timeline);
+      setActive('btn-view-focus', prefs.focus);
+      setActive('btn-view-kpis', prefs.kpis);
+      setActive('btn-view-panels', prefs.panels);
+      setActive('btn-view-timeline', prefs.timeline);
+      setTimeout(refreshGraphs, 120);
+    };
+    [
+      ['btn-view-focus', 'focus'],
+      ['btn-view-kpis', 'kpis'],
+      ['btn-view-panels', 'panels'],
+      ['btn-view-timeline', 'timeline'],
+    ].forEach(([id, key]) => {
+      const btn = $(id);
+      if (btn) btn.onclick = () => {
+        prefs[key] = !prefs[key];
+        applyViewControls();
+      };
+    });
+    applyViewControls();
+  }
+
   // ───────────────────────────────────────────────────────────────────────────
   // Bootstrap
   // ───────────────────────────────────────────────────────────────────────────
   refreshTopologyMeta();   // syncs sel-k + scenario list with server's PAD_K
+  setupViewControls();
   fetch('/api/topology').then(r => r.json()).then(renderTopology);
   fetch('/api/state').then(r => r.json()).then(applyState);
   connect();
