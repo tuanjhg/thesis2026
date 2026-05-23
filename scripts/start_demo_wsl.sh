@@ -36,10 +36,15 @@ if ! python -c "import fastapi, uvicorn, httpx" 2>/dev/null; then
 fi
 
 export PYTHONPATH="$ROOT:${PYTHONPATH:-}"
+# PAD_K (topology size) defaults to 4; pass through any user override
+export PAD_K="${PAD_K:-4}"
+
+echo "[setup] PAD_K=$PAD_K (fat-tree size)"
 
 # 3. Start backend (background)
 echo "[1/2] launching FastAPI backend on :8088"
-nohup python -m uvicorn frontend.backend:app --host 0.0.0.0 --port 8088 \
+nohup env PAD_K="$PAD_K" PYTHONPATH="$PYTHONPATH" \
+      python -m uvicorn frontend.backend:app --host 0.0.0.0 --port 8088 \
       >"$PIDDIR/backend.log" 2>&1 &
 echo $! >"$PIDDIR/backend.pid"
 

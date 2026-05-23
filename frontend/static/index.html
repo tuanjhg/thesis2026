@@ -5,7 +5,18 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>PAD-ONAP Topology Demo</title>
   <link rel="stylesheet" href="style.css" />
-  <script src="https://unpkg.com/cytoscape@3.28.1/dist/cytoscape.min.js"></script>
+  <!-- Cytoscape: try local first, fall back to 2 CDNs -->
+  <script src="cytoscape.min.js" onerror="
+    this.onerror=null;
+    var s=document.createElement('script');
+    s.src='https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.28.1/cytoscape.min.js';
+    s.onerror=function(){
+      var s2=document.createElement('script');
+      s2.src='https://unpkg.com/cytoscape@3.28.1/dist/cytoscape.min.js';
+      document.head.appendChild(s2);
+    };
+    document.head.appendChild(s);
+  "></script>
 </head>
 <body>
 
@@ -21,10 +32,19 @@
     <h1>PAD-ONAP Topology Demo</h1>
   </div>
   <div class="hdr-chips">
-    <span class="chip"        id="chip-scenario">Scenario: —</span>
+    <span class="chip"           id="chip-scenario">Scenario: —</span>
     <span class="chip chip-mode" id="chip-mode">Mode: AI-assisted</span>
     <span class="chip chip-tier" id="chip-tier">Tier: T0</span>
-    <span class="chip chip-health"  id="chip-health">System Healthy</span>
+    <span class="chip chip-health" id="chip-health">System Healthy</span>
+    <label class="chip chip-k">
+      Topology k =
+      <select id="sel-k">
+        <option value="2">2 (2 hosts)</option>
+        <option value="4" selected>4 (16 hosts)</option>
+        <option value="6">6 (54 hosts)</option>
+        <option value="8">8 (128 hosts)</option>
+      </select>
+    </label>
   </div>
   <div class="hdr-right">
     <span id="ts" class="ts muted">—</span>
@@ -172,6 +192,24 @@
           Pick a scenario to start.
         </div>
       </div>
+
+      <!-- Network fabric (fat-tree): physical topology where attack flows -->
+      <section id="fabric-section">
+        <header class="fabric-header">
+          <span class="fabric-title">Network fabric</span>
+          <span class="muted" id="fabric-meta">fat-tree k=4 · 16 hosts</span>
+          <span class="fabric-legend">
+            <span class="lg-dot core"></span>core
+            <span class="lg-dot agg"></span>agg
+            <span class="lg-dot edge"></span>edge
+            <span class="lg-dot host"></span>host
+            <span class="lg-dot attacker"></span>attacker
+            <span class="lg-dot victim"></span>victim
+            <span class="lg-line path"></span>attack path
+          </span>
+        </header>
+        <div id="cy-fabric"></div>
+      </section>
 
       <!-- Pipeline trace strip: bottom of canvas (waterfall) -->
       <div id="trace-strip" aria-label="Pipeline trace (waterfall)">

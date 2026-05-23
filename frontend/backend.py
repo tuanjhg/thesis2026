@@ -38,7 +38,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from pipeline.s5_fastpath import scenario_state
-from frontend.scenarios import SCENARIOS, by_id, DEFAULT_ATTACK_ID
+from frontend import scenarios as scn
+from frontend.scenarios import by_id, DEFAULT_ATTACK_ID, topology_info, set_k
 
 RYU_URL = os.environ.get("PAD_RYU_URL", "http://127.0.0.1:8080")
 PROM_URL = os.environ.get("PAD_PROM_URL", "http://127.0.0.1:9190")
@@ -150,7 +151,175 @@ def topology_snapshot() -> dict:
         "layers": LAYERS, "nodes": nodes_out, "edges": edges_out,
         "narration": _narrate(state),
         "trace":     _build_trace(state),
+        "fabric":    _build_fabric(state),
     }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Fat-tree fabric — physical network where attack traffic actually flows
+# ─────────────────────────────────────────────────────────────────────────────
+def _build_fabric(state: dict) -> dict:
+    """Return fat-tree topology + attack path edges, sized per current PAD_K."""
+    k = scn.PAD_K
+    if k < 2 or k % 2 != 0:
+        k = 4
+    n_pods         = k
+    n_core         = (k // 2) ** 2
+    agg_per_pod    = k // 2
+    edge_per_pod   = k // 2
+    hosts_per_edge = k // 2
+    n_hosts        = n_pods * edge_per_pod * hosts_per_edge
+
+    # Y positions for the 4 layers
+    Y_CORE, Y_AGG, Y_EDGE, Y_HOST = 30, 90, 150, 210
+    W = 880   # logical canvas width
+
+    nodes: list[dict] = []
+    edges: list[dict] = []
+
+    # ── Core switches (top row, evenly spread) ──
+    for i in range(n_core):
+        x = (i + 0.5) * W / n_core
+        nodes.append({"id": f"c{i+1}", "kind": "core",
+                      "label": f"c{i+1}", "x": int(x), "y": Y_CORE})
+
+    # ── Per pod: agg, edge, hosts (group horizontally) ──
+    pod_w = W / n_pods
+    for p in range(n_pods):
+        pod_origin = p * pod_w
+
+        for a in range(agg_per_pod):
+            x = pod_origin + (a + 0.5) * pod_w / agg_per_pod
+            nodes.append({"id": f"a{p}_{a}", "kind": "agg",
+                          "label": f"a{p}_{a}", "pod": p,
+                          "x": int(x), "y": Y_AGG})
+
+        for e in range(edge_per_pod):
+            x = pod_origin + (e + 0.5) * pod_w / edge_per_pod
+            nodes.append({"id": f"e{p}_{e}", "kind": "edge",
+                          "label": f"e{p}_{e}", "pod": p,
+                          "x": int(x), "y": Y_EDGE})
+
+            for h in range(hosts_per_edge):
+                hid = (p * edge_per_pod * hosts_per_edge
+                       + e * hosts_per_edge + h)
+                x_h = pod_origin + (e * hosts_per_edge + h + 0.5) \
+                                    * pod_w / (edge_per_pod * hosts_per_edge)
+                nodes.append({"id": f"h{hid}", "kind": "host",
+                              "label": f"h{hid}", "pod": p,
+                              "x": int(x_h), "y": Y_HOST})
+
+    # ── Edges ──────────────────────────────────────────────────────────────
+    edge_id = 0
+    def add_edge(s: str, t: str) -> str:
+        nonlocal edge_id
+        eid = f"fe{edge_id}"
+        edges.append({"id": eid, "source": s, "target": t,
+                      "on_path": False})
+        edge_id += 1
+        return eid
+
+    # core ↔ agg (agg a connects to cores [a*(k/2) .. a*(k/2)+k/2))
+    for p in range(n_pods):
+        for a in range(agg_per_pod):
+            for j in range(k // 2):
+                core_idx = a * (k // 2) + j
+                add_edge(f"a{p}_{a}", f"c{core_idx + 1}")
+
+    # edge ↔ agg (full bipartite within pod)
+    for p in range(n_pods):
+        for a in range(agg_per_pod):
+            for e in range(edge_per_pod):
+                add_edge(f"e{p}_{e}", f"a{p}_{a}")
+
+    # host ↔ edge (1:1)
+    for p in range(n_pods):
+        for e in range(edge_per_pod):
+            for h in range(hosts_per_edge):
+                hid = (p * edge_per_pod * hosts_per_edge
+                       + e * hosts_per_edge + h)
+                add_edge(f"h{hid}", f"e{p}_{e}")
+
+    # ── Attack path overlay ────────────────────────────────────────────────
+    attacker_id, victim_id = _parse_attacker_victim(state, n_hosts)
+    path_edges: list[tuple[str, str]] = []
+    if attacker_id is not None and victim_id is not None and attacker_id != victim_id:
+        path_edges = _shortest_fat_tree_path(
+            attacker_id, victim_id,
+            n_pods, edge_per_pod, hosts_per_edge, agg_per_pod)
+    path_set = {tuple(sorted([s, t])) for s, t in path_edges}
+    for e in edges:
+        key = tuple(sorted([e["source"], e["target"]]))
+        if key in path_set:
+            e["on_path"] = True
+
+    # Mark attacker & victim
+    for n in nodes:
+        if n["kind"] == "host":
+            hid = int(n["id"][1:])
+            if hid == attacker_id: n["role"] = "attacker"
+            elif hid == victim_id: n["role"] = "victim"
+
+    inbound = state.get("traffic", {}).get("inbound_pps", 0)
+    return {
+        "k": k, "n_hosts": n_hosts,
+        "nodes": nodes, "edges": edges,
+        "attacker": f"h{attacker_id}" if attacker_id is not None else "",
+        "victim":   f"h{victim_id}"   if victim_id   is not None else "",
+        "path_active": bool(path_edges and inbound > 0),
+        "particles": min(6.0, 1.5 + 0.0001 * inbound) if inbound > 0 else 0,
+    }
+
+
+def _parse_attacker_victim(state: dict, n_hosts: int) -> tuple[int|None, int|None]:
+    """Extract numeric host ids from state.attacker_host / victim_host."""
+    def first_h(s: str) -> int | None:
+        if not s: return None
+        first = s.split(",")[0].strip()
+        if first.startswith("h"):
+            try:
+                v = int(first[1:])
+                return v if 0 <= v < n_hosts else None
+            except ValueError:
+                return None
+        return None
+    return first_h(state.get("attacker_host", "")), \
+           first_h(state.get("victim_host", ""))
+
+
+def _shortest_fat_tree_path(att: int, vic: int, n_pods: int,
+                            edge_per_pod: int, hosts_per_edge: int,
+                            agg_per_pod: int) -> list[tuple[str, str]]:
+    """
+    Compute one valid path from host hatt → hvic through the fat-tree.
+    Picks the first agg in each pod and the first core if cross-pod.
+    """
+    hpe = hosts_per_edge
+    epp = edge_per_pod
+
+    att_pod  = att // (epp * hpe)
+    att_edge = (att % (epp * hpe)) // hpe
+    vic_pod  = vic // (epp * hpe)
+    vic_edge = (vic % (epp * hpe)) // hpe
+
+    path: list[tuple[str, str]] = []
+    path.append((f"h{att}", f"e{att_pod}_{att_edge}"))
+    path.append((f"e{att_pod}_{att_edge}", f"a{att_pod}_0"))
+
+    if att_pod != vic_pod:
+        # Go up to a core, then down to victim pod's agg
+        path.append((f"a{att_pod}_0", "c1"))
+        path.append(("c1", f"a{vic_pod}_0"))
+        path.append((f"a{vic_pod}_0", f"e{vic_pod}_{vic_edge}"))
+    elif att_edge != vic_edge:
+        # Same pod, different edge — go through agg
+        path.append((f"a{att_pod}_0", f"e{vic_pod}_{vic_edge}"))
+    else:
+        # Same edge — no upward hops needed
+        pass
+
+    path.append((f"e{vic_pod}_{vic_edge}", f"h{vic}"))
+    return path
 
 
 def _edge_status(edge: dict, state: dict) -> str:
@@ -414,7 +583,33 @@ async def node_detail(node_id: str):
 
 @app.get("/api/scenarios")
 async def scenarios():
-    return {"scenarios": SCENARIOS}
+    # Read fresh from the (mutable) catalog each call so /api/topology/k POST
+    # is reflected immediately.
+    return {"scenarios": scn.SCENARIOS}
+
+
+@app.get("/api/topology_info")
+async def topology_info_endpoint():
+    """Return PAD_K + host count so the frontend can label the topology."""
+    return topology_info()
+
+
+@app.post("/api/topology/k")
+async def set_topology_k(req: Request):
+    """Switch fat-tree k at runtime. Body: {"k": 2|4|6|8}."""
+    body = await req.json()
+    try:
+        k = int(body.get("k", 0))
+    except (TypeError, ValueError):
+        raise HTTPException(400, detail="k must be an integer")
+    try:
+        info = set_k(k)
+    except ValueError as e:
+        raise HTTPException(400, detail=str(e))
+    # Reset any running scenario so the new topology is consistent
+    scenario_state.reset()
+    scenario_state.push_event("topology_change", k=k)
+    return {"ok": True, "topology": info}
 
 
 @app.get("/api/flows")

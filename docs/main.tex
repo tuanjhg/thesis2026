@@ -282,11 +282,57 @@ All references from relevant studies are explicitly sourced from the list of ref
 \addcontentsline{toc}{chapter}{Abstract}
 \vspace{20pt}
 
-Distributed denial-of-service (DDoS) attacks pose a serious threat to data center networks because they can rapidly deplete link capacity, transport layer state, and shared mitigation resources. However, the most modern closed-loop defense mechanisms in network functional virtualization (NFV) environments remain largely reactive, exhibiting end-to-end mitigation latency that fails to keep pace with the speed of modern large-scale attacks. To overcome this gap, this thesis proposes \padonap{}, a four-stage closed-loop architecture inspired by ONAP.
+Distributed Denial-of-Service (DDoS) attacks remain a major threat to data
+center networks because they can rapidly exhaust link capacity, transport-layer
+state, and shared mitigation resources. Although Network Function
+Virtualization (NFV), Cloud-Native Network Functions (CNFs), and Service
+Function Chaining (SFC) provide flexible mechanisms for deploying security
+functions, many closed-loop mitigation systems still operate reactively. As a
+result, attack traffic may continue to affect protected services while
+telemetry is collected, an event is detected, a policy decision is made, and a
+mitigation function is instantiated or activated. This thesis addresses this
+attack-to-enforcement latency by proposing \padonap{}
+(\textit{Proactive Attack Defense and Orchestration Model}), an AI-augmented
+and ONAP-inspired closed-loop framework for proactive DDoS mitigation in data
+center networks.
 
-Unlike conventional methods, \padonap{} incorporates AI strategies in detection and prediction. A lightweight \textbf{XGBoost} classifier on a 17-dimensional window-level feature vector provides explainable, reactive detection on the six-class CICDDoS2019 label space used in the Track~A experiment. Simultaneously, a \textbf{CNN + Bidirectional LSTM with attention pooling} (CNN+BiLSTM+Attention) acts as a multi-horizon predictor at 60, 300, and 600 seconds to proactively anticipate attack risk; this architecture was chosen after benchmarking five sequence-modelling families against a persistence baseline and a tabular XGBoost-flat baseline on CICIDS2017. The outputs of this AI are mapped to a 5-tier hierarchical orchestration strategy within the ONAP-inspired Policy Framework, enabling proactive pre-positioning and dynamic scaling of Virtual Network Functions (VNFs) for data filtering. Furthermore, the system integrates SHapley Additive exPlanations (SHAP) to provide explainable policy metadata, effectively addressing the "black box" limitations of traditional AI defenses.
+\padonap{} combines near-real-time detection, multi-horizon attack forecasting,
+explainable policy translation, SLA-aware resource allocation, and
+Kubernetes-based CNF enforcement. The analytics layer follows a dual-track
+design. Track~A uses an XGBoost classifier over a 17-dimensional window-level
+feature vector to perform immediate six-class DDoS detection on CICDDoS2019.
+Track~B uses a CNN+BiLSTM+Attention model to estimate future attack risk at
+60, 300, and 600~second horizons on CICIDS2017. The resulting detection
+confidence and forecast probabilities are translated into five graduated
+response tiers, ranging from normal monitoring and alerting to pre-positioning,
+mitigation, and isolation. SHAP-based explanation metadata and tier-decision
+records are included to improve auditability and reduce the opacity of
+AI-driven mitigation decisions. In addition, an LP-based allocator checks
+whether the selected response tier can preserve configured service floors under
+the available capacity.
 
-Evaluated on the CICDDoS2019 benchmark dataset, \padonap{} achieves robust classification performance while trading maximum theoretical accuracy for practical NFV deployment capabilities. The results show that \padonap{} minimizes end-to-end latency compared to existing basic response methods, supports SLA-compliant allocation in the evaluated capacity setups, and provides automated, transparent security orchestration for the data center network infrastructure.
+The framework is evaluated through offline AI benchmarks, synthetic scenario
+replay, Mininet fat-tree emulation, and a selected ONAP OOM integration test.
+The XGBoost detector achieves 0.9731 accuracy, 0.8257 macro-F1, and 0.9997
+macro AUC on the six-class CICDDoS2019 setting. The selected
+CNN+BiLSTM+Attention forecaster achieves a mean ROC-AUC of 0.9526 across the
+three horizons, with an average AUC lift of approximately 9.7\% over a
+persistence baseline and 7.7~ms P99 inference latency. Scenario results show
+that the proactive forecasting path is most effective for attacks with temporal
+buildup, providing 65~s lead time over a threshold baseline in the gradual SYN
+ramp scenario and earlier lightweight preparation in the mixed
+proactive-reactive scenario. Mininet validation confirms the telemetry,
+stream-processing, and OVS enforcement path, while the ONAP experiment shows
+that live orchestration introduces substantially higher VNF instantiation delay
+than the synthetic stub. Overall, the thesis demonstrates that DDoS defense in
+NFV/CNF environments should be evaluated not only by detection accuracy, but
+also by whether AI signals arrive early enough to support explainable,
+resource-aware, and enforceable mitigation.
+
+\vspace{10pt}
+\noindent\textbf{Keywords:} DDoS mitigation; data center networks; NFV; CNF;
+ONAP-inspired closed-loop orchestration; multi-horizon forecasting; XGBoost;
+CNN+BiLSTM+Attention; SHAP explainability; SLA-aware resource allocation.
 
 \newpage
 
@@ -2660,11 +2706,12 @@ a controlled synthetic harness, a Mininet fat-tree emulation testbed, and
 a selected real ONAP OOM integration test. The synthetic harness replays
 pre-constructed traffic windows through the orchestration logic in order to
 isolate the behaviour of the AI, policy, SLA allocation, and VNF lifecycle
-components. The Mininet testbed exercises the same pipeline using a
-gNMI/gRPC telemetry adapter, Apache Kafka event transport, and Apache Flink
-window aggregation over Open vSwitch counters. Finally, the ONAP OOM test
-examines the latency impact of using a live ONAP control plane for a selected
-mitigation scenario.
+components. The Mininet testbed exercises the real-traffic validation path
+using softflowd-based NetFlow export, Apache Kafka event transport, Apache
+Flink window aggregation, and Open vSwitch rule installation; the
+gNMI-compatible OVS adapter is retained as an alternative structured telemetry
+path for synthetic validation. Finally, the ONAP OOM test examines the latency
+impact of using a live ONAP control plane for a selected mitigation scenario.
 
 Four representative scenarios are evaluated: S1 (normal baseline), S2
 (sudden UDP flood), S3 (gradual SYN ramp), and S4 (proactive versus reactive
@@ -2704,6 +2751,15 @@ ONAP OOM deployment to compare the stub approximation against a real control
 plane.
 
 \subsection{Mininet Testbed Environment}
+
+The experimental testbed is divided into two domains. The local domain emulates
+the data center network with Mininet, generates benign and attack traffic, and
+exports traffic observations. The remote domain hosts the streaming analytics
+and orchestration-side components, including Kafka, Flink, AI inference,
+policy logic, and the ONAP/Kubernetes integration path. Unless explicitly
+stated otherwise, VNF lifecycle latency in the S1--S4 Mininet scenarios is
+stub-simulated; only the selected S2 ONAP experiment uses a live ONAP OOM
+control plane.
 
 The Mininet emulation network uses a fat-tree topology with $k=4$, comprising
 4 core, 8 aggregation, and 8 edge (Top-of-Rack) Open vSwitch (OVS) switches
@@ -2779,7 +2835,7 @@ VNF lifecycle    & Stub-simulated for S1--S4; live ONAP OOM for the S2-ONAP inte
 Attack traffic is generated from host \texttt{h0} in pod~0 (IP
 \texttt{10.0.0.1}) toward victim host \texttt{h15} in pod~3 (IP
 \texttt{10.3.1.2}), traversing two pod boundaries through a core switch as
-highlighted by the red trace in Figure~\ref{thesis/fig:testbed-fat-tree-k4}. This
+highlighted by the red trace in Figure~\ref{fig:testbed-fat-tree-k4}. This
 choice maximizes the number of fat-tree hops the attack must cross
 ($\texttt{h0} \rightarrow \texttt{e0\_0} \rightarrow \texttt{a0\_0}
 \rightarrow \texttt{c1} \rightarrow \texttt{a3\_0} \rightarrow \texttt{e3\_1}
@@ -3069,7 +3125,12 @@ proactive \tier{2} action at window~31 precedes the later reactive \tier{3} acti
 \label{sec:mininet-e2e}
 %----------------------------------------------------------------------
 
-Scenarios S1--S4 are replayed on the Mininet fat-tree testbed to validate the gNMI/Kafka/Flink telemetry path and OVS SFC rule installation. Telemetry sampling, Flink aggregation, and OVS rule updates are executed on the emulated network; VNF boot remains stub-simulated except for the selected ONAP integration test in Section~\ref{sec:onap-real}.Table~\ref{tab:mininet-validation-summary} summarizes the Mininet evidence.
+Scenarios S1--S4 are replayed on the Mininet fat-tree testbed to validate the
+softflowd/Kafka/Flink telemetry path and OVS SFC rule installation. Telemetry
+export, Flink aggregation, and OVS rule updates are executed on the emulated
+network; VNF boot remains stub-simulated except for the selected ONAP
+integration test in Section~\ref{sec:onap-real}. Table~\ref{tab:mininet-validation-summary}
+summarizes the Mininet evidence.
 
 \begin{table}[H]
 \centering
@@ -3083,8 +3144,8 @@ Scenario & Key signal & Max tier & First trigger & VNF boot & OVS SFC & Result \
 \midrule
 S1 Normal & iperf3 background & $T_0$ & --- & --- & --- & No escalation \\
 S2 UDP flood & conf $=0.924$ & $T_3$ & first attack window & 6{,}012~ms & 11~ms & Reactive mitigation \\
-S3 SYN ramp & $P(t+30)=0.749$ & $T_2$ & 70~s & 508~ms & 9~ms & +50~s lead \\
-S4 Mixed & $P(t+30)=0.762$; conf $=0.939$ & $T_3$ & 40~s / 170~s & 508 / 6{,}022~ms & 9 / 12~ms & 10.8$\times$ boot gap \\
+S3 SYN ramp & $P(t+60)=0.749$ & $T_2$ & 70~s & 508~ms & 9~ms & +50~s lead \\
+S4 Mixed & $P(t+60)=0.762$; conf $=0.939$ & $T_3$ & 40~s / 170~s & 508 / 6{,}022~ms & 9 / 12~ms & 10.8$\times$ boot gap \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -3100,7 +3161,7 @@ The UDP-flood run is used as the representative latency breakdown because it exe
 \toprule
 Stage & Measured latency \\
 \midrule
-gNMI sampling window                  & 5{,}000~ms \\
+Telemetry/Flink window                & 5{,}000~ms \\
 Kafka/Flink aggregation and feature extraction & 51~ms \\
 XGBoost inference                     & 2.2~ms \\
 CNN+BiLSTM+Attention inference        & 7.7~ms \\
@@ -3163,7 +3224,7 @@ This chapter evaluated \padonap{} through synthetic replay, Mininet emulation, a
 
   \item Track~B (forecasting) selects \textbf{CNN+BiLSTM+Attention} on the basis of a seven-model comparison (Section~\ref{subsec:forecaster-comparison}) on CICIDS2017: mean ROC-AUC 0.9526 across $h\!\in\!\{60,300,600\}$~s, $+9.7\%$ over the persistence baseline, $+0.93\%$ over the strongest non-sequence learner (XGBoost-flat at 0.9433), and 7.7~ms P99 inference latency with 190.6~K parameters --- the only sequence model that beats XGBoost-flat across all horizons.
 
-  \item In the synthetic and Mininet settings, all four scenarios complete successfully under the evaluated configuration. The Mininet runs validate the gNMI-compatible telemetry path, Flink window aggregation,and OVS enforcement behavior, while VNF boot remains stub-simulated except for the ONAP S2 run.
+  \item In the synthetic and Mininet settings, all four scenarios complete successfully under the evaluated configuration. The Mininet runs validate the softflowd/Kafka/Flink telemetry path, Flink window aggregation, and OVS enforcement behavior, while VNF boot remains stub-simulated except for the ONAP S2 run.
 
   \item The forecasting path provides useful lead time when the attack has temporal buildup. In S3, \padonap{} pre-positions \tier{2} 65~s before the threshold baseline escalates. In S4, the first proactive action occurs 135~s before the within-run reactive \tier{3} transition.
 

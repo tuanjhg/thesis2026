@@ -7,6 +7,27 @@
 
 (() => {
   // ───────────────────────────────────────────────────────────────────────────
+  // Sanity: Cytoscape loaded?
+  // ───────────────────────────────────────────────────────────────────────────
+  if (typeof cytoscape !== 'function') {
+    console.error('[PAD] Cytoscape failed to load. Check Network tab.');
+    const cy = document.getElementById('cy');
+    if (cy) cy.innerHTML =
+      '<div style="padding:40px; text-align:center; color:#DC2626;">' +
+      '<h3>Cytoscape library failed to load</h3>' +
+      '<p>Open DevTools (F12) → Network and re-load. The page tried 3 sources:</p>' +
+      '<ol style="text-align:left; display:inline-block;">' +
+      '<li><code>/cytoscape.min.js</code> (local, recommended)</li>' +
+      '<li><code>cdnjs.cloudflare.com</code> fallback</li>' +
+      '<li><code>unpkg.com</code> fallback</li></ol>' +
+      '<p>If all three fail, download manually:<br>' +
+      '<code>curl -o frontend/static/cytoscape.min.js https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.28.1/cytoscape.min.js</code></p>' +
+      '</div>';
+    return;
+  }
+  console.log('[PAD] Cytoscape loaded:', cytoscape.version || 'unknown');
+
+  // ───────────────────────────────────────────────────────────────────────────
   // Style constants (mirror style.css palette)
   // ───────────────────────────────────────────────────────────────────────────
   const C = {
@@ -138,22 +159,33 @@
   // ───────────────────────────────────────────────────────────────────────────
   let topologyHash = '';
   function renderTopology(topo) {
+    if (!topo || !topo.nodes || !topo.edges) {
+      console.warn('[PAD] renderTopology got invalid payload', topo);
+      return;
+    }
     const sig = JSON.stringify(
       [topo.layers?.map(l => l.id), topo.nodes.map(n => n.id),
        topo.edges.map(e => e.id)]);
     if (sig !== topologyHash) {
-      cy.elements().remove();
-      (topo.layers || []).forEach(l => cy.add({
-        data: { id: l.id, label: l.label, kind: 'layer' } }));
-      topo.nodes.forEach(n => cy.add({
-        data: { id: n.id, parent: n.parent, label: n.label,
-                type: n.type, status: n.status, description: n.description },
-        position: { x: n.x, y: n.y } }));
-      topo.edges.forEach(e => cy.add({
-        data: { id: e.id, source: e.source, target: e.target,
-                type: e.type, label: e.label || '', status: e.status || '' } }));
-      cy.fit(undefined, 40);
-      topologyHash = sig;
+      try {
+        cy.elements().remove();
+        (topo.layers || []).forEach(l => cy.add({
+          data: { id: l.id, label: l.label, kind: 'layer' } }));
+        topo.nodes.forEach(n => cy.add({
+          data: { id: n.id, parent: n.parent, label: n.label,
+                  type: n.type, status: n.status, description: n.description },
+          position: { x: n.x, y: n.y } }));
+        topo.edges.forEach(e => cy.add({
+          data: { id: e.id, source: e.source, target: e.target,
+                  type: e.type, label: e.label || '', status: e.status || '' } }));
+        cy.fit(undefined, 40);
+        topologyHash = sig;
+        console.log('[PAD] topology rendered',
+                    topo.nodes.length, 'nodes,', topo.edges.length, 'edges');
+      } catch (err) {
+        console.error('[PAD] renderTopology failed:', err);
+        console.error('[PAD] payload was:', topo);
+      }
     } else {
       // Update statuses only
       topo.nodes.forEach(n => {
@@ -325,6 +357,33 @@
     document.querySelectorAll('.sc').forEach(el => el.classList.remove('active'));
     setProfileFromScenario(null);
     await fetch('/api/scenario/reset', { method: 'POST' });
+  };
+
+  // Topology k switcher — live POST /api/topology/k
+  async function refreshTopologyMeta() {
+    try {
+      const r = await fetch('/api/topology_info');
+      const info = await r.json();
+      const sel = $('sel-k');
+      if (sel) sel.value = String(info.k);
+      // Force re-fetch of scenarios (rates / multi-attacker labels change)
+      await loadScenarios();
+    } catch (_) { /* offline */ }
+  }
+  $('sel-k').onchange = async (ev) => {
+    const k = parseInt(ev.target.value, 10);
+    const r = await fetch('/api/topology/k', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ k }),
+    });
+    if (!r.ok) {
+      pushEvent(Date.now() / 1000, 'error',
+                `failed to switch k=${k}: ${(await r.json()).detail}`);
+      await refreshTopologyMeta();   // revert select to real value
+      return;
+    }
+    pushEvent(Date.now() / 1000, 'mode', `topology k=${k}`);
+    await refreshTopologyMeta();
   };
 
   // AI / rule-only toggles — mutually exclusive
@@ -513,6 +572,165 @@
     while (ol.children.length > 200) ol.removeChild(ol.firstChild);
     if (auto) ol.scrollLeft = ol.scrollWidth;
   }
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // Cytoscape #2 — fat-tree fabric panel (physical attack path visualization)
+  // ───────────────────────────────────────────────────────────────────────────
+  const cyFabric = cytoscape({
+    container: document.getElementById('cy-fabric'),
+    elements: [],
+    layout: { name: 'preset' },
+    style: [
+      { selector: 'node', style: {
+          'label': 'data(label)', 'color': C.text, 'font-size': 9,
+          'text-valign': 'center', 'text-halign': 'center',
+          'background-color': '#fff',
+          'border-color': '#CBD5E1', 'border-width': 1,
+          'width': 20, 'height': 20 } },
+      { selector: 'node[kind = "core"]', style: {
+          'background-color': '#DBEAFE', 'border-color': C.blue,
+          'border-width': 1.5, 'shape': 'round-rectangle',
+          'width': 28, 'height': 18 } },
+      { selector: 'node[kind = "agg"]', style: {
+          'background-color': '#EDE9FE', 'border-color': C.purple,
+          'shape': 'round-rectangle', 'width': 26, 'height': 18 } },
+      { selector: 'node[kind = "edge"]', style: {
+          'background-color': '#CFFAFE', 'border-color': C.cyan,
+          'shape': 'round-rectangle', 'width': 26, 'height': 16 } },
+      { selector: 'node[kind = "host"]', style: {
+          'background-color': '#D1FAE5', 'border-color': C.green,
+          'shape': 'ellipse', 'width': 16, 'height': 16, 'font-size': 8 } },
+      { selector: 'node[role = "attacker"]', style: {
+          'background-color': '#FECACA', 'border-color': C.red,
+          'border-width': 3, 'width': 22, 'height': 22 } },
+      { selector: 'node[role = "victim"]', style: {
+          'background-color': '#FED7AA', 'border-color': C.orange,
+          'border-width': 3, 'width': 22, 'height': 22 } },
+      { selector: 'edge', style: {
+          'curve-style': 'straight',
+          'line-color': '#E2E8F0', 'width': 1,
+          'target-arrow-shape': 'none' } },
+      { selector: 'edge.on-path', style: {
+          'line-color': C.red, 'width': 2.5,
+          'line-style': 'dashed',
+          'target-arrow-shape': 'triangle',
+          'target-arrow-color': C.red } },
+      { selector: 'edge.on-path.flowing', style: {
+          'line-dash-pattern': [6, 4] } },
+    ],
+    wheelSensitivity: 0.15,
+    minZoom: 0.5, maxZoom: 3,
+    autoungrabify: true,         // hosts are immobile (it's a network map)
+  });
+
+  // Fabric particle engine (separate canvas overlay)
+  let fabricFx = null;
+  let fabricFxCtx = null;
+  let fabricParticles = [];
+  let fabricLastFrame = performance.now();
+  function ensureFabricCanvas() {
+    if (fabricFx) return;
+    const wrap = document.getElementById('fabric-section');
+    if (!wrap) return;
+    fabricFx = document.createElement('canvas');
+    Object.assign(fabricFx.style, {
+      position: 'absolute', top: '24px', left: '0', right: '0', bottom: '0',
+      pointerEvents: 'none',
+    });
+    wrap.style.position = 'relative';
+    wrap.appendChild(fabricFx);
+    fabricFxCtx = fabricFx.getContext('2d');
+    const resize = () => {
+      const r = fabricFx.getBoundingClientRect();
+      fabricFx.width = r.width * devicePixelRatio;
+      fabricFx.height = r.height * devicePixelRatio;
+      fabricFxCtx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+    };
+    new ResizeObserver(resize).observe(fabricFx);
+    setTimeout(resize, 50);
+  }
+
+  function fabricFxLoop() {
+    if (fabricFxCtx) {
+      const now = performance.now();
+      const dt = Math.min(50, now - fabricLastFrame) / 1000;
+      fabricLastFrame = now;
+      fabricFxCtx.clearRect(0, 0, fabricFx.width, fabricFx.height);
+      const survivors = [];
+      for (const p of fabricParticles) {
+        p.t += 0.5 * dt;
+        if (p.t >= 1) continue;
+        const e = cyFabric.getElementById(p.edgeId);
+        if (!e.length) continue;
+        const s = e.source().renderedPosition();
+        const t = e.target().renderedPosition();
+        const x = s.x + (t.x - s.x) * p.t;
+        const y = s.y + (t.y - s.y) * p.t;
+        fabricFxCtx.beginPath();
+        fabricFxCtx.fillStyle = '#DC2626';
+        fabricFxCtx.shadowColor = '#DC2626';
+        fabricFxCtx.shadowBlur = 5;
+        fabricFxCtx.arc(x, y, 3, 0, Math.PI * 2);
+        fabricFxCtx.fill();
+        survivors.push(p);
+      }
+      fabricParticles = survivors.slice(-200);
+    }
+    requestAnimationFrame(fabricFxLoop);
+  }
+  requestAnimationFrame(fabricFxLoop);
+
+  // Renderer for fat-tree fabric
+  let fabricHash = '';
+  function renderFabric(fab) {
+    if (!fab || !fab.nodes) return;
+    ensureFabricCanvas();
+    const sig = `${fab.k}|${fab.nodes.length}|${fab.attacker}|${fab.victim}`;
+    if (sig !== fabricHash) {
+      cyFabric.elements().remove();
+      fab.nodes.forEach(n => cyFabric.add({
+        data: { id: n.id, label: n.label, kind: n.kind,
+                role: n.role || '', pod: n.pod ?? -1 },
+        position: { x: n.x, y: n.y } }));
+      fab.edges.forEach(e => cyFabric.add({
+        data: { id: e.id, source: e.source, target: e.target,
+                on_path: e.on_path } }));
+      cyFabric.fit(undefined, 12);
+      fabricHash = sig;
+    } else {
+      // Update node roles (attacker/victim) on host-name change
+      fab.nodes.forEach(n => {
+        const el = cyFabric.getElementById(n.id);
+        if (el.length) el.data('role', n.role || '');
+      });
+    }
+    // Highlight path
+    cyFabric.edges().removeClass('on-path flowing');
+    fab.edges.forEach(e => {
+      const el = cyFabric.getElementById(e.id);
+      if (el.length && e.on_path) {
+        el.addClass('on-path');
+        if (fab.path_active) el.addClass('flowing');
+      }
+    });
+    // Spawn particles along path edges when traffic flows
+    if (fab.path_active) {
+      const onPath = fab.edges.filter(e => e.on_path);
+      const spawnRate = fab.particles || 2;
+      const spawnN = Math.max(1, Math.round(spawnRate / 5)); // soft
+      onPath.forEach(e => {
+        for (let i = 0; i < spawnN; i++) {
+          if (Math.random() < 0.4) fabricParticles.push({ edgeId: e.id, t: Math.random() * 0.05 });
+        }
+      });
+    }
+    // Update meta label
+    setText('fabric-meta',
+      `fat-tree k=${fab.k} · ${fab.n_hosts} hosts · ` +
+      `${fab.attacker || '—'} → ${fab.victim || '—'}`);
+  }
+
+  cyFabric.on('pan zoom resize', () => { fabricParticles = []; });
 
   // ───────────────────────────────────────────────────────────────────────────
   // Particle engine — canvas overlay synced with Cytoscape pan/zoom.
@@ -753,6 +971,7 @@
     renderPpsLabels(topo.edges);
     renderNarration(topo.narration);
     renderTrace(topo.trace);
+    renderFabric(topo.fabric);
   };
 
   // ───────────────────────────────────────────────────────────────────────────
@@ -785,7 +1004,7 @@
   // ───────────────────────────────────────────────────────────────────────────
   // Bootstrap
   // ───────────────────────────────────────────────────────────────────────────
-  loadScenarios();
+  refreshTopologyMeta();   // syncs sel-k + scenario list with server's PAD_K
   fetch('/api/topology').then(r => r.json()).then(renderTopology);
   fetch('/api/state').then(r => r.json()).then(applyState);
   connect();

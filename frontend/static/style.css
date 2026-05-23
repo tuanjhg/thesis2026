@@ -61,6 +61,12 @@ html, body { margin: 0; padding: 0; height: 100%;
 .chip-health  { background: #ECFDF5; color: var(--green);  border-color: #A7F3D0; }
 .chip-health.warn   { background: #FEF3C7; color: #B45309; border-color: #FDE68A; }
 .chip-health.crit   { background: #FEE2E2; color: var(--red); border-color: #FECACA; }
+.chip-k { display: inline-flex; align-items: center; gap: 6px;
+          background: #F1F5F9; padding: 2px 8px; }
+.chip-k select { font: inherit; font-size: 12px; padding: 1px 4px;
+                 border: 1px solid var(--border); border-radius: 4px;
+                 background: #fff; color: var(--text); cursor: pointer; }
+.chip-k select:hover { border-color: var(--blue); }
 
 .icon-btn {
   width: 28px; height: 28px; border-radius: 50%;
@@ -192,11 +198,11 @@ ul.legend li { display: flex; align-items: center; gap: 8px; }
 #cy { flex: 1; background:
        radial-gradient(ellipse at 50% 30%, #F8FAFC 0%, #EFF6FF 100%); }
 #cy-fx {
-  position: absolute; top: 0; left: 0; right: 0; bottom: 120px;
+  position: absolute; top: 0; left: 0; right: 0; bottom: 300px;
   pointer-events: none;        /* particles never block clicks */
 }
 #edge-labels {
-  position: absolute; top: 0; left: 0; right: 0; bottom: 120px;
+  position: absolute; top: 0; left: 0; right: 0; bottom: 300px;
   pointer-events: none;
 }
 .edge-pps {
@@ -222,7 +228,7 @@ ul.legend li { display: flex; align-items: center; gap: 8px; }
 
 /* ─── Step explainer overlay ─────────────────────────────────────────── */
 #step-card {
-  position: absolute; left: 14px; bottom: 134px;
+  position: absolute; left: 14px; bottom: 314px;
   width: 320px; max-width: 40%;
   background: #FFFFFFE8; border: 1px solid var(--border);
   border-radius: var(--radius); box-shadow: var(--shadow);
@@ -243,6 +249,39 @@ ul.legend li { display: flex; align-items: center; gap: 8px; }
   0%   { box-shadow: 0 0 0 0 #2563EB66; }
   50%  { box-shadow: 0 0 0 8px #2563EB22; }
   100% { box-shadow: var(--shadow); }
+}
+
+/* ─── Network fabric panel (fat-tree) ───────────────────────────────── */
+#fabric-section {
+  height: 180px; background: #FFFFFF;
+  border-top: 1px solid var(--border);
+  display: flex; flex-direction: column;
+}
+.fabric-header {
+  display: flex; align-items: center; gap: 12px;
+  padding: 4px 14px;
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
+}
+.fabric-title { font-weight: 600; text-transform: uppercase;
+                letter-spacing: 0.05em; color: var(--text); }
+.fabric-legend { display: flex; gap: 10px; margin-left: auto;
+                 color: var(--muted); align-items: center; }
+.lg-dot { display: inline-block; width: 9px; height: 9px;
+          border-radius: 50%; margin-right: 3px; vertical-align: middle; }
+.lg-dot.core      { background: #2563EB; }
+.lg-dot.agg       { background: #7C3AED; }
+.lg-dot.edge      { background: #06B6D4; }
+.lg-dot.host      { background: #059669; }
+.lg-dot.attacker  { background: #DC2626; }
+.lg-dot.victim    { background: #F97316; }
+.lg-line.path {
+  display: inline-block; width: 18px; height: 0; margin-right: 3px;
+  vertical-align: middle; border-top: 2px dashed #DC2626;
+}
+#cy-fabric {
+  flex: 1; min-height: 0;
+  background: linear-gradient(180deg, #F8FAFC 0%, #EFF6FF 100%);
 }
 
 /* ─── Trace strip (waterfall) ────────────────────────────────────────── */

@@ -1,0 +1,533 @@
+﻿\chapter{Experiments and Evaluation}
+\label{ch:eval}
+
+This chapter evaluates \padonap{} across three complementary settings:
+a controlled synthetic harness, a Mininet fat-tree emulation testbed, and
+a selected real ONAP OOM integration test. The synthetic harness replays
+pre-constructed traffic windows through the orchestration logic in order to
+isolate the behaviour of the AI, policy, SLA allocation, and VNF lifecycle
+components. The Mininet testbed exercises the real-traffic validation path
+using softflowd-based NetFlow export, Apache Kafka event transport, Apache
+Flink window aggregation, and Open vSwitch rule installation; the
+gNMI-compatible OVS adapter is retained as an alternative structured telemetry
+path for synthetic validation. Finally, the ONAP OOM test examines the latency
+impact of using a live ONAP control plane for a selected mitigation scenario.
+
+Four representative scenarios are evaluated: S1 (normal baseline), S2
+(sudden UDP flood), S3 (gradual SYN ramp), and S4 (proactive versus reactive
+head-to-head). These scenarios are used to evaluate three central aspects of
+the proposed design: detection and forecasting behaviour, proactive lead-time
+advantage, and SLA-aware allocation under mitigation. The scenarios are not
+intended to exhaustively cover all DDoS attack types, but they provide
+controlled evidence for the main operational mechanisms of \padonap{}.
+
+%----------------------------------------------------------------------
+\section{Experimental Setup}
+\label{sec:implementation}
+%----------------------------------------------------------------------
+
+\subsection{Synthetic Evaluation Environment}
+
+\paragraph{Evaluation methodology.}
+The orchestration frequency guard is disabled during scenario replay to allow
+consecutive tier transitions within a single scenario run. Two evaluation
+paths are compared: the proposed AI-driven path and a rule-based threshold
+baseline. The baseline applies seven static conditions on the same
+17-dimensional feature vector used by \padonap{}.
+
+Both paths share the same downstream stack: VNF lifecycle client, SFC manager,
+SLA allocator, and latency tracker. This design keeps the comparison focused
+on the detection and forecasting stage rather than on differences in the
+downstream mitigation implementation.
+
+\paragraph{VNF boot-time calibration.}
+For the synthetic evaluation, VNF boot times are modelled using fixed
+instantiation delays: rate-limiter (\tier{2}) at 0.5~s, traffic scrubber
+(\tier{3}) at 6~s, and blackhole action (\tier{4}) at 0.2~s. The ONAP Service
+Orchestrator is represented by a stub implementation that follows the expected
+lifecycle interaction pattern without invoking a live Kubernetes deployment.
+Section~\ref{sec:onap-real} reports a complementary experiment using a live
+ONAP OOM deployment to compare the stub approximation against a real control
+plane.
+
+\subsection{Mininet Testbed Environment}
+
+The experimental testbed is divided into two domains. The local domain emulates
+the data center network with Mininet, generates benign and attack traffic, and
+exports traffic observations. The remote domain hosts the streaming analytics
+and orchestration-side components, including Kafka, Flink, AI inference,
+policy logic, and the ONAP/Kubernetes integration path. Unless explicitly
+stated otherwise, VNF lifecycle latency in the S1--S4 Mininet scenarios is
+stub-simulated; only the selected S2 ONAP experiment uses a live ONAP OOM
+control plane.
+
+The Mininet emulation network uses a fat-tree topology with $k=4$, comprising
+4 core, 8 aggregation, and 8 edge (Top-of-Rack) Open vSwitch (OVS) switches
+for a total of 20 switches and 16 hosts ($k^3/4 = 16$), following the
+Al-Fares fat-tree design~\cite{alfares2008scalable}. Each pod contains
+4 hosts, 2 edge switches, and 2 aggregation switches; every aggregation
+switch connects to $k/2=2$ core switches, giving 4 equal-cost core paths per
+host pair. The full layout and an example attacker$\rightarrow$victim path
+are shown in Figure~\ref{fig:testbed-fat-tree-k4}.
+
+\begin{figure}[H]
+\centering
+ \includegraphics[width=0.95\linewidth]{thesis/figs/fattree.png}
+\caption{Fat-tree $k=4$ Mininet testbed used for DDoS validation: 4 core
+switches (\texttt{c1}\,--\,\texttt{c4}), 8 aggregation switches
+(\texttt{ap\_0}, \texttt{ap\_1} per pod), 8 edge switches
+(\texttt{ep\_0}, \texttt{ep\_1} per pod), and 16 hosts
+(\texttt{h0}\,--\,\texttt{h15}). The red trace shows the cross-pod attack
+path used in all scenarios: attacker \texttt{h0} (pod~0) traverses
+\texttt{e0\_0} $\rightarrow$ \texttt{a0\_0} $\rightarrow$ \texttt{c1}
+$\rightarrow$ \texttt{a3\_0} $\rightarrow$ \texttt{e3\_1} to reach victim
+\texttt{h15} (pod~3).}
+\label{fig:testbed-fat-tree-k4}
+\end{figure}
+
+The fat-tree symbol convention used throughout the thesis is summarized in
+Table~\ref{tab:testbed-fat-tree-legend}, and the run-time configuration in
+Table~\ref{tab:mininet-setup}.
+
+\begin{table}[H]
+\centering
+\small
+\caption{Fat-tree symbol convention for the testbed.}
+\label{tab:testbed-fat-tree-legend}
+\begin{tabular}{@{}llp{0.62\linewidth}@{}}
+\toprule
+Symbol & Role & Quantity \\
+\midrule
+\texttt{c}        & Core switch              & 4 switches (\texttt{c1}--\texttt{c4}) at the top, connecting every pod \\
+\texttt{a}        & Aggregation switch       & 2 per pod (\texttt{ap\_0}, \texttt{ap\_1}); connects edge $\leftrightarrow$ core \\
+\texttt{e}        & Edge (ToR) switch        & 2 per pod (\texttt{ep\_0}, \texttt{ep\_1}); connects host $\leftrightarrow$ aggregation \\
+\texttt{h}        & Host                     & 16 hosts (\texttt{h0}--\texttt{h15}), 4 hosts per pod \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[H]
+\centering
+\small
+\caption{Mininet testbed configuration for real-traffic validation.}
+\label{tab:mininet-setup}
+\begin{tabular}{@{}ll@{}}
+\toprule
+Parameter & Value \\
+\midrule
+Topology         & Fat-tree $k=4$: 4 core $+$ 8 aggregation $+$ 8 edge OVS switches, 16 hosts \\
+Host addressing  & \texttt{10.\textit{pod}.\textit{edge}.\textit{host+1}/8} (e.g. \texttt{h0}=10.0.0.1, \texttt{h15}=10.3.1.2) \\
+Link capacity    & 100~Mbps (host--edge), 200~Mbps (aggregation/core) \\
+Telemetry source & \texttt{softflowd} per-host NetFlow v5 export to a Kafka producer (real path); \\
+                 & a gNMI-compatible adapter over OVS counters is provided as a synthetic alternative \\
+Message bus      & Apache Kafka (KRaft, NodePort 30992) \\
+Stream processor & Apache Flink, 5~s window with 1~s slide \\
+Attack generator & \texttt{hping3} (UDP flood and SYN flood modes) \\
+Background load  & \texttt{iperf3} TCP, approximately 95~Mbps \\
+Feature output   & 17-dimensional feature vector per Flink window \\
+AI models        & Same checkpoint as synthetic runs; no retraining \\
+VNF lifecycle    & Stub-simulated for S1--S4; live ONAP OOM for the S2-ONAP integration run \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Attack path.}
+Attack traffic is generated from host \texttt{h0} in pod~0 (IP
+\texttt{10.0.0.1}) toward victim host \texttt{h15} in pod~3 (IP
+\texttt{10.3.1.2}), traversing two pod boundaries through a core switch as
+highlighted by the red trace in Figure~\ref{fig:testbed-fat-tree-k4}. This
+choice maximizes the number of fat-tree hops the attack must cross
+($\texttt{h0} \rightarrow \texttt{e0\_0} \rightarrow \texttt{a0\_0}
+\rightarrow \texttt{c1} \rightarrow \texttt{a3\_0} \rightarrow \texttt{e3\_1}
+\rightarrow \texttt{h15}$), ensuring that aggregation and core switches
+participate in both the offered traffic measurement and any later
+OVS-based enforcement action.
+
+\paragraph{Local--remote pipeline.}
+The full \padonap{} pipeline is split between a local Mininet host and a
+remote Kubernetes cluster running ONAP OOM, as shown in
+Figure~\ref{fig:testbed-remote-pipeline}. Only two flows cross the
+local$\leftrightarrow$remote boundary: (i)~the raw telemetry stream
+(\texttt{pad.telemetry.raw}) published to the remote Kafka broker over TCP,
+and (ii)~an HTTP \texttt{/metrics} poll used by the local
+\texttt{RemoteTierPoller} to sample tier-decision metadata from the remote
+metrics service. The complete ONAP control loop (DCAE AI signals, Policy
+tier decision, SO CNF lifecycle, CNF/VNF action) remains entirely inside
+the remote cluster, so the local machine never participates in the
+orchestration control path.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.95\linewidth]{thesis/figs/local.png}
+\caption{\padonap{} local--remote pipeline. Local Mininet captures
+NetFlow~v5 from \texttt{softflowd} on every host, the Kafka-producing
+collector forwards records to the remote Kafka broker, and the remote
+Flink-driven AI orchestrator feeds DCAE/Policy/SO inside ONAP OOM. The
+local \texttt{RemoteTierPoller} only samples post-decision metrics for
+evaluation reports; it does not participate in the closed loop.}
+\label{fig:testbed-remote-pipeline}
+\end{figure}
+
+\paragraph{Telemetry implementation.}
+The real-traffic pipeline uses per-host \texttt{softflowd} agents that
+export NetFlow~v5 records to a local Kafka producer, which then publishes
+to the remote Kafka topic. Apache Flink consumes the Kafka stream on the
+remote cluster, applies a 5~s sliding window with a 1~s slide, and emits
+the 17-dimensional feature vector used for AI inference and tier decision.
+The earlier gNMI-compatible adapter, which reads OVS port and flow
+counters directly every 500~ms, is retained as an alternative telemetry
+path for synthetic validation runs that do not require NetFlow
+infrastructure. Both adapters serialize records with timestamp, switch
+identifier, port identifier, packet count, byte count, protocol counters,
+and TCP flag counters, so Flink can derive rates, entropy values, protocol
+fractions, packet-size statistics, and timing features regardless of the
+chosen capture mechanism. Thus, the statement ``gNMI-compatible'' means
+that the adapter exposes a structured telemetry stream with gNMI/YANG-like
+field semantics for the synthetic experiment; it does not mean that OVS
+natively provides a production gNMI server.
+
+Reported byte-rate values in the Mininet attack snapshots are interpreted as
+offered or telemetry-observed aggregate attack load estimates before
+mitigation, not as guaranteed delivered goodput on a single 100~Mbps host-edge
+link. This distinction is necessary because the attack generator can offer
+traffic above the configured bottleneck capacity, while the emulated links
+still bound the traffic actually delivered to the victim.
+
+%----------------------------------------------------------------------
+\section{AI Model Performance}
+\label{sec:metrics}
+%----------------------------------------------------------------------
+
+Table~\ref{tab:ai-metrics} summarizes the offline performance of both AI
+components. Track~A (detection) is evaluated on CICDDoS2019 using a temporal
+80/20 split with a 20-window purge gap; Track~B (forecasting) is evaluated on
+CICIDS2017 (Sharafaldin et al., 2018a) using a chronological per-file 80/20
+split. CICIDS2017 is the most-used DDoS forecasting benchmark in the
+literature (29\% of surveyed studies in Mittal et al., 2022) and is the same
+dataset used by the contemporary SOTA early-warning work PARD-SSM
+\cite{hiremath2026pardssm}. CICDDoS2019 was previously considered for Track~B
+but was rejected because its $>$99\% attack ratio leaves no
+benign$\rightarrow$attack transitions for a forecaster to learn from; CSE-CIC-IDS2018
+was rejected because a persistence baseline reaches $\text{F1}\approx 0.96$,
+reducing the task to current-state detection.
+
+\begin{table}[H]
+\centering
+\small
+\caption{AI component metrics. Track~A is evaluated on CICDDoS2019, Track~B
+on CICIDS2017.}
+\label{tab:ai-metrics}
+\begin{tabular}{@{}lll@{}}
+\toprule
+Track & Metric & Value \\
+\midrule
+\multirow{5}{*}{XGBoost 6-class detector (CICDDoS2019)}
+  & Accuracy              & 0.9731 \\
+  & Balanced accuracy     & 0.8339 \\
+  & Macro-F1              & 0.8257 \\
+  & Macro AUC (OvR)       & 0.9997 \\
+  & Fit time              & 11.2~s \\
+\midrule
+\multirow{6}{*}{CNN+BiLSTM forecaster(CICIDS2017)}
+  & AUC at $t+60$~s   & 0.9445 \\
+  & AUC at $t+300$~s  & 0.9540 \\
+  & AUC at $t+600$~s  & 0.9593 \\
+  & PR-AUC at $t+60/300/600$~s & 0.7576 / 0.7878 / 0.7977 \\
+  & F1@0.5 at $t+60/300/600$~s & 0.7801 / 0.8353 / 0.7635 \\
+  & Inference P99 latency      & 7.7~ms \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.95\linewidth]{thesis/figs/ai/forecaster_f1_thr05.png}
+    \caption{F1 at the fixed deployment threshold of 0.5 (deployment-realistic
+    operating point). XGBoost-flat is competitive at 60 s but the recurrent
+    baselines (StackedLSTM, GRU, TemporalCNN, Transformer$+$LSTM) collapse at
+    longer horizons because their probability outputs are not well calibrated;
+    CNN+BiLSTM+Attention and XGBoost-flat are the only learned models that
+    remain above the persistence reference at every horizon.}
+    \label{fig:forecaster-f1-thr05}
+\end{figure}
+
+\paragraph{Lift over persistence.}
+A persistence baseline that simply replays the current-second label
+($\hat{y}_{t+h}=y_t$) achieves mean AUC~$0.8554$ over the same three horizons,
+so CNN+BiLSTM+Attention delivers an absolute $\Delta$AUC of
+$+0.0963$, $+0.0985$, and $+0.0966$ at $t{+}60$, $t{+}300$, and $t{+}600$~s,
+respectively (mean lift $\approx +9.7\%$). This is a non-trivial improvement
+on CICIDS2017 because attack episodes already last tens of minutes (e.g., DoS
+Hulk $\approx 2$~h, DDoS LOIT $\approx 71$~min, DoS Slowloris $\approx 23$~min)
+and a copy-current-state forecaster is therefore a strong baseline. By
+comparison, an earlier Track~B run on CSE-CIC-IDS2018 collapses to a $+0.02$
+AUC gap over persistence, providing empirical evidence of the task degeneracy that
+motivated the move to CICIDS2017.
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.9\linewidth]{thesis/figs/ai/forecaster_auc_vs_horizon.png}
+    \caption{Per-horizon ROC-AUC of every forecaster candidate on CICIDS2017.
+    CNN+BiLSTM+Attention is the only sequence model whose AUC stays above
+    XGBoost-flat across all three horizons and the only model whose AUC
+    grows monotonically with the horizon length.}
+    \label{fig:forecaster-auc-vs-horizon}
+\end{figure}
+
+\paragraph{Why AUC increases with horizon.}
+Unlike conventional time-series forecasting, where uncertainty grows with the
+horizon, Track~B AUC increases mildly from $0.9445$ at $t{+}60$~s to
+$0.9593$ at $t{+}600$~s. The cause is the long-tailed distribution of attack
+durations on CICIDS2017: most positive samples at a 600-second horizon fall
+inside an ongoing attack episode, whose features are highly predictive,
+while positive samples at a 60-second horizon are concentrated near attack
+transitions, which are intrinsically harder to localize in time. The
+same evidence-accumulation effect is reported by PARD-SSM, whose ``Early
+Detection Margin'' peaks around eight minutes. This means Track~B is best
+understood as attack-episode state forecasting rather than
+exact-onset prediction; the strategic 600-second horizon is therefore
+the most reliable signal for proactive $T_2$ pre-positioning, while the
+60-second tactical horizon is primarily used for short-loop confirmation.
+
+\subsection{Classifier Benchmark for Track A}
+\label{subsec:classifier-comparison}
+
+To validate Track~A, an additional classifier comparison is conducted using
+the same feature vector and the same temporal 80/20 split. The purpose of this
+comparison is to quantify the trade-off between aggregate accuracy, minority
+class behaviour, and explainability support.
+
+Table~\ref{tab:classifier-comparison} compares the six Track~A baselines:
+XGBoost, LightGBM, Random Forest, ExtraTrees, MLP,
+and a lightweight 1D-CNN. All models are evaluated on the same held-out temporal
+test windows after the six-class remap.
+
+\begin{table}[H]
+\centering
+\small
+\caption{Classifier comparison for Track~A using the six-class
+CICDDoS2019 detector configuration.}
+\label{tab:classifier-comparison}
+\begin{tabular}{@{}lrrrrl@{}}
+\toprule
+Model & Accuracy & Bal. Acc. & Macro-F1 & Macro AUC & Observation \\
+\midrule
+1D-CNN       & 0.9604 & 0.8396 & 0.8402 & 0.9963 & Highest macro-F1 in this comparison \\
+MLP          & 0.9722 & 0.8342 & 0.8275 & 0.9992 & Strong tabular neural baseline \\
+ExtraTrees   & 0.9735 & 0.8347 & 0.8271 & 0.9997 & Highest accuracy among tabular baselines \\
+RandomForest & 0.9734 & 0.8344 & 0.8262 & 0.9988 & Similar to ExtraTrees, slower fit \\
+XGBoost      & 0.9731 & 0.8339 & 0.8257 & 0.9997 & Supports SHAP analysis \\
+LightGBM     & 0.9731 & 0.8340 & 0.8254 & 0.9998 & Comparable to XGBoost \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The comparison shows that the lightweight 1D-CNN obtains the highest macro-F1, but
+all models struggle on the \texttt{UDP-lag} minority class. XGBoost is retained
+as the detector for SHAP analysis and policy-level explanations:
+its aggregate accuracy is close to the other tabular baselines, its one-vs-rest
+AUC is high, and its tree structure provides direct compatibility with the SHAP
+analysis stage used later in the pipeline.
+
+\subsection{Forecaster Selection: Sequence Inductive Bias vs. Persistence}
+\label{subsec:forecaster-comparison}
+
+To justify the choice of \textbf{CNN+BiLSTM+Attention} for Track~B, an
+analogous controlled benchmark is conducted on CICIDS2017 using the same 600-second
+lookback, the same per-second feature aggregation, the same chronological per-file 80/20 split, and the same focal-loss training schedule. Five sequence models are evaluated against two sanity baselines: a persistence forecaster ($\hat{y}_{t+h}=y_t$) and a tabular XGBoost classifier trained on the flattened lookback (denoted ``XGBoost-flat''). Including persistence is critical because, as discussed in Section~\ref{sec:metrics}, it is the strongest non-learned baseline whenever attack episodes persist over the forecast horizon. XGBoost-flat is included as the strongest non-sequence learner: it sees exactly the same features but discards the temporal ordering, so any sequence model that fails to beat it is providing no additional inductive bias.
+
+\begin{table}[H]
+\centering
+\small
+\caption{Forecaster comparison on CICIDS2017 (mean ROC-AUC across
+$h\in\{60,300,600\}$~s).
+$\Delta$AUC is the mean lift over the persistence baseline.}
+\label{tab:forecaster-comparison}
+\begin{tabular}{@{}lrrrl@{}}
+\toprule
+Model & Mean AUC & $\Delta$AUC vs Pers. & Params  \\
+\midrule
+\textbf{CNN+BiLSTM+Attention}  & \textbf{0.9526} & \textbf{+0.0972} & 190.6~K  \\
+XGBoost-flat                   & 0.9433 & +0.0879 & 10.8~K  \\
+TemporalCNN                    & 0.9377 & +0.0823 & 41.3~K   \\
+Transformer$+$LSTM             & 0.9294 & +0.0740 & 540.0~K \\
+StackedLSTM                    & 0.9039 & +0.0485 & 348.4~K\\
+Persistence baseline           & 0.8554 &      & 0 \\
+GRU                            & 0.8034 & $-0.0520$ & 263.4~K  \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.95\linewidth]{thesis/figs/ai/forecaster_mean_auc.png}
+    \caption{Mean ROC-AUC of every forecaster candidate on CICIDS2017
+    averaged over $h\in\{60,300,600\}$~s. CNN+BiLSTM+Attention is the only
+    sequence model that exceeds the XGBoost-flat baseline; the persistence
+    baseline (dotted line) is shown for reference.}
+    \label{fig:forecaster-mean-auc}
+\end{figure}
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=0.95\linewidth]{thesis/figs/ai/forecaster_delta_auc.png}
+    \caption{ROC-AUC lift over the persistence baseline at each horizon.
+    CNN+BiLSTM+Attention is the only model with a near-constant positive
+    lift across all three horizons.}
+    \label{fig:forecaster-delta-auc}
+\end{figure}
+
+Three observations follow directly from
+Table~\ref{tab:forecaster-comparison} and
+Figures~\ref{fig:forecaster-mean-auc}--\ref{fig:forecaster-delta-auc}. First, only CNN+BiLSTM+Attention beats the XGBoost-flat baseline, which is the strict requirement for justifying any sequence model on this task; the other recurrent or attention-only designs do not extract enough value from the temporal ordering to outweigh XGBoost-flat's tabular boosting. Second, CNN+BiLSTM+Attention achieves a mean $+9.7\%$ AUC lift over persistence and is the only model that delivers a near-constant positive lift across all three horizons ($+0.0963$ / $+0.0985$ / $+0.0966$), suggesting that the convolutional front-end and attention pooling capture features that genuinely carry over the 600-second horizon. Third, model capacity is not predictive of forecast quality: the 540~K-parameter Transformer$+$LSTM and 348~K-parameter StackedLSTM both fall behind the 190~K CNN+BiLSTM+Attention and even the 41~K TemporalCNN, consistent with the line of work that finds compact
+convolutional or hybrid models more sample-efficient than pure attention backbones on similarly sized intrusion-detection benchmarks
+\cite{alanazi2022ensembleddos, cnnbilstmattn2025}.
+
+CNN+BiLSTM+Attention is therefore selected for Track~B. The inference cost remains modest (190.6~K parameters, $\approx 7.7$~ms P99 latency on a single T4 GPU) and is dominated by the convolutional front-end, so the resulting forecaster is compatible with the same closed-loop budget used by the Track~A XGBoost detector.
+
+%----------------------------------------------------------------------
+\section{Scenario, Baseline, and Lead-Time Results}
+\label{sec:results}
+%----------------------------------------------------------------------
+
+The four evaluated scenarios are designed to stress distinct axes of the orchestration system: no-attack robustness (S1), sudden volumetric attack requiring reactive escalation (S2), gradual-ramp attack exploiting the proactive forecast path (S3), and a controlled within-run comparison of both paths under mixed traffic (S4). Each scenario window spans 5~s, and tier decisions are made per window.
+
+For comparison, a rule-based threshold baseline is implemented on the same 17-dimensional feature vector. The baseline uses fixed expert-defined rules:packet-rate thresholds at 800, 3{,}000, and 10{,}000~pkt/s for \tier{1}, \tier{2}, and \tier{3}; SYN ratio $>0.60$ and UDP protocol ratio $>0.85$ for \tier{3}; ICMP protocol ratio $>0.70$ for \tier{2}; and source-IP entropy $<0.80$ with packet rate $>500$~pkt/s for \tier{2}. These thresholds are fixed before scenario replay and are not tuned on the reported outcomes. The baseline shares the same downstream VNF lifecycle, SFC, SLA allocation, and latency tracking logic as \padonap{}, keeping the comparison focused on the AI detection and forecasting stage.
+
+\begin{table}[H]
+\centering
+\small
+\caption{Scenario, threshold-baseline, and lead-time summary. Positive lead time indicates that \padonap{} acted earlier than the baseline. Latency values are P50 over VNF instantiation events only.}
+\label{tab:scenario-baseline-leadtime}
+\begin{tabular}{@{}p{1.4cm}p{2.7cm}p{1.6cm}p{1.8cm}p{1.8cm}p{2.1cm}p{3.4cm}@{}}
+\toprule
+ID & Scenario & \padonap{} max & First proact. & Baseline first & Lead vs. baseline & Main outcome \\
+\midrule
+S1 & Normal baseline & $T_0$ & --- & --- & --- &
+No false escalation; SLA floor preserved. \\
+S2 & Sudden UDP flood & $T_3$ & --- & $w{=}32$ & --- &
+Abrupt onset is handled reactively; \padonap{} \tier{3} P50 is 6{,}006~ms versus 6{,}009~ms for the baseline. \\
+S3 & Gradual SYN ramp & $T_2$ & $w{=}42$ & $w{=}55$ & $+\mathbf{65}$~s &
+Forecaster pre-positions \tier{2} at 505~ms and avoids \tier{3} under the evaluated policy configuration. \\
+S4 & Mixed proactive/reactive & $T_3$ & $w{=}31$ & $w{=}32$ & $+\mathbf{5}$~s &
+First action is similar in onset but lighter: \tier{2} at 505~ms rather than baseline \tier{3} at 6{,}007~ms. \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The table shows that proactive advantage depends on attack shape. S3 provides the clearest gain because the gradual SYN ramp gives the
+CNN+BiLSTM+Attention track enough temporal evidence to act 65~s before the threshold baseline. S4 provides a smaller baseline lead time, but within the same run the
+proactive \tier{2} action at window~31 precedes the later reactive \tier{3} action at window~58 by 135~s. S2 has no proactive advantage because the UDP flood starts abruptly; in this case, \padonap{} behaves as a reactive detector and preserves downstream latency parity with the threshold baseline.
+
+%----------------------------------------------------------------------
+%----------------------------------------------------------------------
+\section{Mininet End-to-End Validation}
+\label{sec:mininet-e2e}
+%----------------------------------------------------------------------
+
+Scenarios S1--S4 are replayed on the Mininet fat-tree testbed to validate the
+softflowd/Kafka/Flink telemetry path and OVS SFC rule installation. Telemetry
+export, Flink aggregation, and OVS rule updates are executed on the emulated
+network; VNF boot remains stub-simulated except for the selected ONAP
+integration test in Section~\ref{sec:onap-real}. Table~\ref{tab:mininet-validation-summary}
+summarizes the Mininet evidence.
+
+\begin{table}[H]
+\centering
+\small
+\caption{Condensed Mininet validation results. VNF boot values remain
+stub-simulated except for the ONAP case reported in Section~\ref{sec:onap-real}.}
+\label{tab:mininet-validation-summary}
+\begin{tabular}{@{}p{1.8cm}p{3.0cm}p{1.4cm}p{2.0cm}p{2.0cm}p{1.5cm}p{2.4cm}@{}}
+\toprule
+Scenario & Key signal & Max tier & First trigger & VNF boot & OVS SFC & Result \\
+\midrule
+S1 Normal & iperf3 background & $T_0$ & --- & --- & --- & No escalation \\
+S2 UDP flood & conf $=0.924$ & $T_3$ & first attack window & 6{,}012~ms & 11~ms & Reactive mitigation \\
+S3 SYN ramp & $P(t+60)=0.749$ & $T_2$ & 70~s & 508~ms & 9~ms & +50~s lead \\
+S4 Mixed & $P(t+60)=0.762$; conf $=0.939$ & $T_3$ & 40~s / 170~s & 508 / 6{,}022~ms & 9 / 12~ms & 10.8$\times$ boot gap \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The UDP-flood run is used as the representative latency breakdown because it exercises telemetry collection, immediate detection, policy escalation, stub scrubber instantiation, and OVS rule installation in a single reactive path.
+
+\begin{table}[H]
+\centering
+\small
+\caption{End-to-end latency breakdown for S2 in Mininet with stub VNF boot.}
+\label{tab:mininet-s2-latency}
+\begin{tabular}{@{}lr@{}}
+\toprule
+Stage & Measured latency \\
+\midrule
+Telemetry/Flink window                & 5{,}000~ms \\
+Kafka/Flink aggregation and feature extraction & 51~ms \\
+XGBoost inference                     & 2.2~ms \\
+CNN+BiLSTM+Attention inference        & 7.7~ms \\
+Policy decision ($T_0 \to T_3$)       & 1~ms \\
+VNF instantiation (stub, scrubber)    & 6{,}012~ms \\
+OVS SFC rule installation             & 11~ms \\
+\midrule
+\textbf{Total first attack window}    & \textbf{11{,}085~ms} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The telemetry-observed offered attack estimate drops from 541.7~Mbps to 41.3~Mbps after mitigation, representing a 92.4\% reduction in observed attack load. Across the Mininet runs, the measured OVS SFC insertion time stays in the 9--12~ms range. The results follow the same trend as the synthetic evaluation: abrupt floods require reactive mitigation, while gradual or mixed attacks allow earlier \tier{2} preparation.
+
+%----------------------------------------------------------------------
+\section{Real ONAP Integration Test}
+\label{sec:onap-real}
+%----------------------------------------------------------------------
+
+The ONAP experiment is limited to Scenario~S2 and is used to compare the stub orchestration approximation against a live ONAP OOM control plane. The ONAP cluster is deployed on a server with 64 CPU cores, 128~GB RAM, and a 200~GB SSD, with Service Orchestrator, Message Router, Policy PAP, Policy PDP.
+
+The measured value in this experiment is the total scrubber VNF instantiation time after XGBoost detects the UDP flood: 22{,}110~ms. Per-component ONAP logs are incomplete, so Table~\ref{tab:onap-real-vs-stub} reports an estimated stage breakdown to indicate how the measured total is distributed.
+
+\begin{table}[H]
+\centering
+\small
+\caption{VNF instantiation latency: stub approximation versus real
+ONAP OOM deployment (S2 UDP flood, scrubber VNF). Real ONAP stage values are estimated from the recorded 22{,}110~ms total; future experiments should replace them with per-component logs.}
+\label{tab:onap-real-vs-stub}
+\begin{tabular}{@{}lrr@{}}
+\toprule
+Stage & Stub & Real ONAP OOM \\
+\midrule
+Feature extraction and AI inference & 61~ms   & 61~ms \\
+Policy dispatch      & 1~ms    & 251~ms (est.) \\
+SO lifecycle request handling       & ---     & 2{,}310~ms (est.) \\
+Kubernetes pod scheduling           & ---     & 1{,}840~ms (est.) \\
+Container start + readiness         & ---     & 17{,}709~ms (est.) \\
+VNF instantiation total             & 6{,}012~ms & \textbf{22{,}110~ms} \\
+OVS SFC rule installation           & 11~ms   & 11~ms \\
+\midrule
+\textbf{Total pipeline latency}     & \textbf{6{,}085~ms} & \textbf{22{,}182~ms} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The result shows that the synthetic stub underestimates lifecycle latency in a live orchestration environment. This strengthens the motivation for proactive
+\tier{2} pre-positioning, while also showing that future ONAP experiments need synchronized Policy, SO, Kubernetes, and enforcement timestamps before a precise per-component latency claim can be made.
+
+Overall, the synthetic and Mininet results show consistent policy behavior: \tier{2} preparation costs approximately 0.5~s in the stub setting, while \tier{3} scrubber instantiation costs approximately 6~s. The ONAP OOM run replaces this stub assumption with a measured 22.1~s scrubber instantiation time for S2, so it is reported as an integration boundary rather than as a fully decomposed end-to-end ONAP benchmark.
+%----------------------------------------------------------------------
+\section{Chapter Summary}
+\label{sec:eval-summary}
+%----------------------------------------------------------------------
+
+This chapter evaluated \padonap{} through synthetic replay, Mininet emulation, and one selected ONAP OOM integration test. The main findings are summarized below.
+
+\begin{enumerate}
+  \item Track~A (detection) evaluates six classifiers on the six-class CICDDoS2019 setup (Section~\ref{subsec:classifier-comparison}). The lightweight 1D-CNN achieves the highest macro-F1 (0.8402), while XGBoost provides the detector used for SHAP explanations, with 0.9731 accuracy, 0.8257 macro-F1, and 0.9997 macro AUC.
+
+  \item Track~B (forecasting) selects \textbf{CNN+BiLSTM+Attention} on the basis of a seven-model comparison (Section~\ref{subsec:forecaster-comparison}) on CICIDS2017: mean ROC-AUC 0.9526 across $h\!\in\!\{60,300,600\}$~s, $+9.7\%$ over the persistence baseline, $+0.93\%$ over the strongest non-sequence learner (XGBoost-flat at 0.9433), and 7.7~ms P99 inference latency with 190.6~K parameters --- the only sequence model that beats XGBoost-flat across all horizons.
+
+  \item In the synthetic and Mininet settings, all four scenarios complete successfully under the evaluated configuration. The Mininet runs validate the softflowd/Kafka/Flink telemetry path, Flink window aggregation, and OVS enforcement behavior, while VNF boot remains stub-simulated except for the ONAP S2 run.
+
+  \item The forecasting path provides useful lead time when the attack has temporal buildup. In S3, \padonap{} pre-positions \tier{2} 65~s before the threshold baseline escalates. In S4, the first proactive action occurs 135~s before the within-run reactive \tier{3} transition.
+
+  \item Proactive \tier{2} preparation is materially cheaper than\tier{3} scrubber instantiation in the stub setting: about 0.5~s for the rate-limiter path versus about 6~s for the scrubber path. The real ONAP OOM S2 run increases the scrubber instantiation time to 22.1~s, highlighting the importance of reporting stub and live-orchestration measurements separately.
+\end{enumerate}
+
