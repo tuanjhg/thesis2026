@@ -312,8 +312,18 @@ ul.legend li { display: flex; align-items: center; gap: 8px; }
 .lg-dot.attacker  { background: #DC2626; }
 .lg-dot.victim    { background: #F97316; }
 .lg-line.path {
-  display: inline-block; width: 18px; height: 0; margin-right: 3px;
+  display: inline-block; width: 18px; height: 0; margin-right: 6px;
   vertical-align: middle; border-top: 2px dashed #DC2626;
+  position: relative;
+}
+.lg-line.path::after {
+  content: "";
+  position: absolute;
+  right: -1px;
+  top: -5px;
+  border-left: 7px solid #DC2626;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
 }
 #cy-fabric {
   flex: 1; min-height: 0;

@@ -56,6 +56,15 @@ app.add_middleware(
 )
 
 
+@app.middleware("http")
+async def no_cache_dashboard(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Demo topology (systemdesign.md §7.2) — 11 nodes, 3 layers
 # ─────────────────────────────────────────────────────────────────────────────
@@ -247,11 +256,18 @@ def _build_fabric(state: dict) -> dict:
         path_edges = _shortest_fat_tree_path(
             attacker_id, victim_id,
             n_pods, edge_per_pod, hosts_per_edge, agg_per_pod)
-    path_set = {tuple(sorted([s, t])) for s, t in path_edges}
+    path_dir = {
+        tuple(sorted([s, t])): (idx, s, t)
+        for idx, (s, t) in enumerate(path_edges)
+    }
     for e in edges:
         key = tuple(sorted([e["source"], e["target"]]))
-        if key in path_set:
+        if key in path_dir:
+            order, source, target = path_dir[key]
             e["on_path"] = True
+            e["path_order"] = order
+            e["path_source"] = source
+            e["path_target"] = target
 
     # Mark attacker & victim
     for n in nodes:
@@ -261,12 +277,14 @@ def _build_fabric(state: dict) -> dict:
             elif hid == victim_id: n["role"] = "victim"
 
     inbound = state.get("traffic", {}).get("inbound_pps", 0)
+    path_nodes = [path_edges[0][0], *[t for _, t in path_edges]] if path_edges else []
     return {
         "k": k, "n_hosts": n_hosts,
         "nodes": nodes, "edges": edges,
         "attacker": f"h{attacker_id}" if attacker_id is not None else "",
         "victim":   f"h{victim_id}"   if victim_id   is not None else "",
-        "path_note": "selected path; one ECMP route is shown",
+        "path_nodes": path_nodes,
+        "path_note": "directed selected flow; one ECMP route is shown",
         "path_active": bool(path_edges and inbound > 0),
         "particles": min(6.0, 1.5 + 0.0001 * inbound) if inbound > 0 else 0,
     }

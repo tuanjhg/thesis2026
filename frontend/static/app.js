@@ -647,7 +647,10 @@
           'line-color': C.red, 'width': 2.5,
           'line-style': 'dashed',
           'target-arrow-shape': 'triangle',
-          'target-arrow-color': C.red } },
+          'target-arrow-color': C.red,
+          'arrow-scale': 1.15,
+          'source-endpoint': 'outside-to-node',
+          'target-endpoint': 'outside-to-node' } },
       { selector: 'edge.on-path.flowing', style: {
           'line-dash-pattern': [6, 4] } },
     ],
@@ -714,16 +717,25 @@
   function renderFabric(fab) {
     if (!fab || !fab.nodes) return;
     ensureFabricCanvas();
-    const sig = `${fab.k}|${fab.nodes.length}|${fab.attacker}|${fab.victim}`;
+    const pathSig = (fab.edges || [])
+      .filter(e => e.on_path)
+      .sort((a, b) => (a.path_order ?? 0) - (b.path_order ?? 0))
+      .map(e => `${e.path_source || e.source}>${e.path_target || e.target}`)
+      .join('|');
+    const sig = `${fab.k}|${fab.nodes.length}|${fab.attacker}|${fab.victim}|${pathSig}`;
     if (sig !== fabricHash) {
       cyFabric.elements().remove();
       fab.nodes.forEach(n => cyFabric.add({
         data: { id: n.id, label: n.label, kind: n.kind,
                 role: n.role || '', pod: n.pod ?? -1 },
         position: { x: n.x, y: n.y } }));
-      fab.edges.forEach(e => cyFabric.add({
-        data: { id: e.id, source: e.source, target: e.target,
-                on_path: e.on_path } }));
+      fab.edges.forEach(e => {
+        const source = e.on_path && e.path_source ? e.path_source : e.source;
+        const target = e.on_path && e.path_target ? e.path_target : e.target;
+        cyFabric.add({
+          data: { id: e.id, source, target,
+                  on_path: e.on_path, path_order: e.path_order ?? -1 } });
+      });
       cyFabric.resize();
       cyFabric.fit(undefined, 18);
       cyFabric.center();
@@ -746,7 +758,9 @@
     });
     // Spawn particles along path edges when traffic flows
     if (fab.path_active) {
-      const onPath = fab.edges.filter(e => e.on_path);
+      const onPath = fab.edges
+        .filter(e => e.on_path)
+        .sort((a, b) => (a.path_order ?? 0) - (b.path_order ?? 0));
       const spawnRate = fab.particles || 2;
       const spawnN = Math.max(1, Math.round(spawnRate / 5)); // soft
       onPath.forEach(e => {
@@ -756,10 +770,13 @@
       });
     }
     // Update meta label
+    const pathLabel = Array.isArray(fab.path_nodes) && fab.path_nodes.length
+      ? ` · ${fab.path_nodes.join(' → ')}`
+      : '';
     const pathNote = fab.path_note ? ` · ${fab.path_note}` : '';
     setText('fabric-meta',
       `fat-tree k=${fab.k} · ${fab.n_hosts} hosts · ` +
-      `${fab.attacker || '—'} → ${fab.victim || '—'}${pathNote}`);
+      `${fab.attacker || '—'} → ${fab.victim || '—'}${pathLabel}${pathNote}`);
   }
 
   cyFabric.on('pan zoom resize', () => { fabricParticles = []; });
